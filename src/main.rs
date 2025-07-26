@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde_json;
 use lz_string;
 use regex::Regex;
+use rand::Rng;
 use std::{fs, io::{self, Write}, path::Path, thread, time::Duration};
 use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
@@ -194,7 +195,7 @@ impl Comic {
             let mut out = fs::File::create(&dst_part).unwrap();
             io::copy(&mut resp, &mut out).unwrap();
             fs::rename(&dst_part, &dst).unwrap();
-            thread::sleep(self.delay);
+            thread::sleep(rand::rng().random_range(self.delay/2..=self.delay*3/2));
         }
         let zip_path = format!("{}/{}/{}.zip", self.output_dir, book_safe, chap_safe);
         let zip_file = fs::File::create(&zip_path).unwrap();
