@@ -38,7 +38,6 @@ fn parse_id(s: &str) -> Option<usize> {
 
 #[derive(Deserialize)]
 struct ChapterStruct {
-    cname: String,
     sl: Sl,
     path: String,
     files: Vec<String>,
@@ -176,11 +175,11 @@ impl Comic {
     }
 
     fn download_chapter(&self, index: usize) {
-        let (ref _name, ref href) = self.chapters[index];
+        let (ref name, ref href) = self.chapters[index];
         let chap = self.get_chapter(href);
         let illegal = Regex::new(r##"[\/:*?"<>|]"##).unwrap();
         let book_safe = illegal.replace_all(&self.title, "_");
-        let chap_safe = illegal.replace_all(&chap.cname, "_");
+        let chap_safe = illegal.replace_all(&name, "_");
         let folder = format!("{}/{}/{}", self.output_dir, book_safe, chap_safe);
         fs::create_dir_all(&folder).unwrap();
         for (i, file) in chap.files.iter().enumerate() {
