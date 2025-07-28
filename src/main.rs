@@ -177,10 +177,15 @@ impl Comic {
 
     fn download_chapter(&self, index: usize) {
         let (ref name, ref href) = self.chapters[index];
-        let chap = self.get_chapter(href);
         let illegal = Regex::new(r##"[\/:*?"<>|]"##).unwrap();
         let book_safe = illegal.replace_all(&self.title, "_");
         let chap_safe = illegal.replace_all(&name, "_");
+        let zip_path = format!("{}/{}/{}.zip", self.output_dir, book_safe, chap_safe);
+        if self.skip && Path::new(&zip_path).exists() {
+            println!("{} already exists, skipping.", &zip_path);
+            return;
+        }
+        let chap = self.get_chapter(href);
         let folder = format!("{}/{}/{}", self.output_dir, book_safe, chap_safe);
         fs::create_dir_all(&folder).unwrap();
         let bar = ProgressBar::new(chap.files.len() as u64);
@@ -210,7 +215,6 @@ impl Comic {
             thread::sleep(rand::rng().random_range(self.delay/2..=self.delay*3/2));
             bar.inc(1);
         }
-        let zip_path = format!("{}/{}/{}.zip", self.output_dir, book_safe, chap_safe);
         let zip_file = fs::File::create(&zip_path).unwrap();
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
