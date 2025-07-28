@@ -244,9 +244,11 @@ fn main() {
     }
     print!("Select chapters (e.g. 1-3,5): "); io::stdout().flush().unwrap();
     let mut input = String::new(); io::stdin().read_line(&mut input).unwrap();
-    let ranges = range_parser::parse(&input).unwrap_or_default();
-    for idx in ranges {
+    let mut ranges = range_parser::parse(&input).unwrap_or_default().into_iter().peekable();
+    while let Some(idx) = ranges.next() {
         comic.download_chapter(idx);
-        thread::sleep(Duration::from_secs(5));
+        if ranges.peek().is_some() {
+            thread::sleep(Duration::from_secs(5));
+        }
     }
 }
