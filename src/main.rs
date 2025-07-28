@@ -1,4 +1,5 @@
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::{blocking::Client, header::HeaderMap};
 use scraper::{Html, Selector};
 use serde::Deserialize;
@@ -182,11 +183,19 @@ impl Comic {
         let chap_safe = illegal.replace_all(&name, "_");
         let folder = format!("{}/{}/{}", self.output_dir, book_safe, chap_safe);
         fs::create_dir_all(&folder).unwrap();
+        let bar = ProgressBar::new(chap.files.len() as u64);
+        bar.set_style(ProgressStyle::default_bar().template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
+            ).unwrap().progress_chars("#>-"),);
+        bar.set_message(name.clone());
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let dst = format!("{}/{}_{}", folder, i, file);
             let dst_part = format!("{}.part", dst);
-            if self.skip && Path::new(&dst).exists() { continue; }
+            if self.skip && Path::new(&dst).exists() {
+                bar.inc(1);
+                continue;
+            }
             let e_str = match &chap.sl.e {
                 serde_json::Value::String(s) => s.clone(),
                 serde_json::Value::Number(n) => n.to_string(),
@@ -199,6 +208,7 @@ impl Comic {
             io::copy(&mut resp, &mut out).unwrap();
             fs::rename(&dst_part, &dst).unwrap();
             thread::sleep(rand::rng().random_range(self.delay/2..=self.delay*3/2));
+            bar.inc(1);
         }
         let zip_path = format!("{}/{}/{}.zip", self.output_dir, book_safe, chap_safe);
         let zip_file = fs::File::create(&zip_path).unwrap();
@@ -232,9 +242,7 @@ fn main() {
     let mut input = String::new(); io::stdin().read_line(&mut input).unwrap();
     let ranges = range_parser::parse(&input).unwrap_or_default();
     for idx in ranges {
-        println!("Downloading chapter {}...", idx);
         comic.download_chapter(idx);
-        println!("Waiting 5s...");
         thread::sleep(Duration::from_secs(5));
     }
 }
