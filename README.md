@@ -17,7 +17,6 @@ OPTIONS:
     -d, --delay-ms <DELAY_MS>        Delay between pages in milliseconds [default: 1000]
     -h, --help                       Print help information
     -o, --output-dir <OUTPUT_DIR>    Output directory [default: Downloads]
-    -s, --skip <skip>                Skip existing images [default: true]
     -t, --tunnel <TUNNEL>            Tunnel line: 0=i,1=eu,2=us [default: 0]
     -V, --version                    Print version information
 ```

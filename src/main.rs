@@ -59,9 +59,6 @@ struct Args {
     /// Delay between pages in milliseconds
     #[clap(short, long, default_value_t = 1000)]
     delay_ms: u64,
-    /// Skip existing images
-    #[clap(short, long, default_value_t = true)]
-    skip: bool,
     /// Output directory
     #[clap(short, long, default_value = "Downloads")]
     output_dir: String,
@@ -92,14 +89,13 @@ struct Comic {
     host: String,
     tunnel: String,
     delay: Duration,
-    skip: bool,
     title: String,
     chapters: Vec<(String, String)>,
     output_dir: String,
 }
 
 impl Comic {
-    fn new(id: usize, tunnel: usize, delay_ms: u64, skip: bool, output_dir: String) -> Result<Self> {
+    fn new(id: usize, tunnel: usize, delay_ms: u64, output_dir: String) -> Result<Self> {
         let mut headers = HeaderMap::new();
         for (key, value) in &[
             ("accept", "image/webp,image/apng,image/*,*/*;q=0.8"),
@@ -125,7 +121,6 @@ impl Comic {
             host,
             tunnel: tunnel_url,
             delay: Duration::from_millis(delay_ms),
-            skip,
             title: String::new(),
             chapters: Vec::new(),
             output_dir,
@@ -256,7 +251,7 @@ impl Comic {
         let book_safe = illegal.replace_all(&self.title, "_");
         let chap_safe = illegal.replace_all(&name, "_");
         let zip_path = format!("{}/{}/{}.zip", self.output_dir, book_safe, chap_safe);
-        if self.skip && Path::new(&zip_path).exists() {
+        if Path::new(&zip_path).exists() {
             println!("{} already exists, skipping.", &zip_path);
             return Ok(());
         }
@@ -277,7 +272,7 @@ impl Comic {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let dst = format!("{}/{}_{}", folder, i, file);
             let dst_part = format!("{}.part", dst);
-            if self.skip && Path::new(&dst).exists() {
+            if Path::new(&dst).exists() {
                 bar.inc(1);
                 continue;
             }
@@ -324,7 +319,6 @@ fn main() -> Result<()> {
         id,
         args.tunnel,
         args.delay_ms,
-        args.skip,
         args.output_dir,
     )?;
     println!("Title: {}", comic.title);
