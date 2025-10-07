@@ -325,13 +325,36 @@ fn main() -> Result<()> {
     for (i, (name, _)) in comic.chapters.iter().enumerate() {
         println!("{}: {}", i, name);
     }
-    print!("Select chapters (e.g. 1-3,5): ");
-    io::stdout().flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let mut ranges = range_parser::parse(input.trim())?
-        .into_iter()
-        .peekable();
+
+    let mut ranges;
+    let chapters_count = comic.chapters.len();
+    loop {
+        print!("Select chapters (e.g. 1-3,5): ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        match range_parser::parse(input.trim()) {
+            Ok(mut parsed_ranges) => {
+                parsed_ranges.sort();
+                if let Some(&last) = parsed_ranges.last() {
+                    if last >= chapters_count {
+                        eprintln!(
+                            "Error: Chapter index {} is out of bounds. Total chapters: {}. Please enter again.",
+                            last, chapters_count
+                        );
+                        continue;
+                    }
+                }
+                ranges = parsed_ranges.into_iter().peekable();
+                break;
+            }
+            Err(_) => {
+                eprintln!("Invalid input format. Please enter again.");
+                continue;
+            }
+        }
+    }
+
     while let Some(idx) = ranges.next() {
         if let Err(e) = comic.download_chapter(idx) {
             eprintln!("Failed to download chapter {}: {}", idx, e);
