@@ -115,7 +115,7 @@ impl Comic {
         let host = String::from("https://tw.manhuagui.com");
         let channels = ["i", "eu", "us"];
         let tn = channels.get(tunnel).unwrap_or(&"i");
-        let tunnel_url = format!("https://{}{}.hamreus.com", tn, "");
+        let tunnel_url = format!("https://{}.hamreus.com", tn);
         let mut c = Comic {
             client,
             host,
