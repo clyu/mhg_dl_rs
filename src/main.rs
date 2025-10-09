@@ -257,29 +257,7 @@ impl Comic {
         self.unpack_packed(frame, a, c, data)
     }
 
-    fn download_chapter(&self, index: usize) -> Result<()> {
-        let (ref name, ref href) = self.chapters[index];
-        let book_safe = RE_ILLEGAL_CHARS.replace_all(&self.title, "_");
-        let chap_safe = RE_ILLEGAL_CHARS.replace_all(&name, "_");
-        let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
-        let zip_path = book_dir.join(format!("{}.zip", chap_safe));
-        if zip_path.exists() {
-            println!("{} already exists, skipping.", zip_path.display());
-            return Ok(());
-        }
-        let chap = self.get_chapter(href)?;
-        let chapter_dir = book_dir.join(chap_safe.as_ref());
-        fs::create_dir_all(&chapter_dir)?;
-        let bar = ProgressBar::new(chap.files.len() as u64);
-        bar.set_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
-                )
-                .unwrap() // This unwrap is on ProgressStyle, which is safe if the template is valid
-                .progress_chars("#>-"),
-        );
-        bar.set_message(name.clone());
+    fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar) -> Result<()> {
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let dst = chapter_dir.join(format!("{}_{}", i, file));
@@ -304,6 +282,10 @@ impl Comic {
             thread::sleep(rand::rng().random_range(self.delay / 2..=self.delay * 3 / 2));
             bar.inc(1);
         }
+        Ok(())
+    }
+
+    fn compress_chapter(&self, chapter_dir: &PathBuf, zip_path: &PathBuf) -> Result<()> {
         let zip_file = fs::File::create(&zip_path)?;
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
@@ -320,6 +302,36 @@ impl Comic {
         }
         zip.finish()?;
         fs::remove_dir(&chapter_dir)?;
+        Ok(())
+    }
+
+    fn download_chapter(&self, index: usize) -> Result<()> {
+        let (ref name, ref href) = self.chapters[index];
+        let book_safe = RE_ILLEGAL_CHARS.replace_all(&self.title, "_");
+        let chap_safe = RE_ILLEGAL_CHARS.replace_all(&name, "_");
+        let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
+        let zip_path = book_dir.join(format!("{}.zip", chap_safe));
+        if zip_path.exists() {
+            println!("{} already exists, skipping.", zip_path.display());
+            return Ok(());
+        }
+        let chap = self.get_chapter(href)?;
+        let chapter_dir = book_dir.join(chap_safe.as_ref());
+        fs::create_dir_all(&chapter_dir)?;
+        let bar = ProgressBar::new(chap.files.len() as u64);
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
+                )
+                .unwrap() // This unwrap is on ProgressStyle, which is safe if the template is valid
+                .progress_chars("#>-"),
+        );
+        bar.set_message(name.clone());
+
+        self.download_images(&chap, &chapter_dir, &bar)?;
+        self.compress_chapter(&chapter_dir, &zip_path)?;
+
         Ok(())
     }
 }
