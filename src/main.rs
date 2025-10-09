@@ -138,17 +138,27 @@ impl Comic {
         let url = format!("{}/comic/{}", self.host, id);
         let res = self.client.get(&url).send()?.text()?;
         let document = Html::parse_document(&res);
-        let sel_title = Selector::parse(".book-title h1").unwrap();
+        let sel_title = Selector::parse(".book-title h1")
+            .map_err(|e| AppError::ContentParsing(format!("Failed to parse title selector: {:?}", e)))?;
         self.title = document
             .select(&sel_title)
             .next()
-            .map(|e| e.text().collect())
-            .unwrap_or_else(|| id.to_string());
-        let sel_chap = Selector::parse(".chapter-list ul a").unwrap();
+            .map(|e| e.text().collect::<String>())
+            .ok_or_else(|| AppError::ContentParsing(format!("Could not find title for comic {}", id)))?;
+        let sel_chap = Selector::parse(".chapter-list ul a")
+            .map_err(|e| AppError::ContentParsing(format!("Failed to parse chapter selector: {:?}", e)))?;
         let elements: Vec<_> = document.select(&sel_chap).collect();
         for element in elements.into_iter().rev() {
-            let name = element.value().attr("title").unwrap_or("").to_string();
-            let href = element.value().attr("href").unwrap_or("").to_string();
+            let name = element
+                .value()
+                .attr("title")
+                .ok_or_else(|| AppError::ContentParsing("Chapter title attribute not found".to_string()))?
+                .to_string();
+            let href = element
+                .value()
+                .attr("href")
+                .ok_or_else(|| AppError::ContentParsing("Chapter href attribute not found".to_string()))?
+                .to_string();
             self.chapters.push((name, href));
         }
         Ok(())
