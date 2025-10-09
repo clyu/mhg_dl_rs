@@ -14,7 +14,7 @@ use std::{
     fs,
     io::{self, Write},
     num::ParseIntError,
-    path::Path,
+    path::PathBuf,
     thread,
     time::Duration,
 };
@@ -251,14 +251,15 @@ impl Comic {
         let (ref name, ref href) = self.chapters[index];
         let book_safe = RE_ILLEGAL_CHARS.replace_all(&self.title, "_");
         let chap_safe = RE_ILLEGAL_CHARS.replace_all(&name, "_");
-        let zip_path = format!("{}/{}/{}.zip", self.output_dir, book_safe, chap_safe);
-        if Path::new(&zip_path).exists() {
-            println!("{} already exists, skipping.", &zip_path);
+        let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
+        let zip_path = book_dir.join(format!("{}.zip", chap_safe));
+        if zip_path.exists() {
+            println!("{} already exists, skipping.", zip_path.display());
             return Ok(());
         }
         let chap = self.get_chapter(href)?;
-        let folder = format!("{}/{}/{}", self.output_dir, book_safe, chap_safe);
-        fs::create_dir_all(&folder)?;
+        let chapter_dir = book_dir.join(chap_safe.as_ref());
+        fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
         bar.set_style(
             ProgressStyle::default_bar()
@@ -271,9 +272,9 @@ impl Comic {
         bar.set_message(name.clone());
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
-            let dst = format!("{}/{}_{}", folder, i, file);
-            let dst_part = format!("{}.part", dst);
-            if Path::new(&dst).exists() {
+            let dst = chapter_dir.join(format!("{}_{}", i, file));
+            let dst_part = PathBuf::from(format!("{}.part", dst.display()));
+            if dst.exists() {
                 bar.inc(1);
                 continue;
             }
@@ -296,7 +297,7 @@ impl Comic {
         let zip_file = fs::File::create(&zip_path)?;
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
-        for entry in fs::read_dir(&folder)? {
+        for entry in fs::read_dir(&chapter_dir)? {
             let e = entry?;
             let path = e.path();
             if path.is_file() {
@@ -308,7 +309,7 @@ impl Comic {
             }
         }
         zip.finish()?;
-        fs::remove_dir(&folder)?;
+        fs::remove_dir(&chapter_dir)?;
         Ok(())
     }
 }
