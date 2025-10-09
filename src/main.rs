@@ -99,6 +99,73 @@ struct Comic {
     output_dir: String,
 }
 
+fn unpack_packed(
+    frame: &str,
+    a: usize,
+    c: usize,
+    data: Vec<String>,
+) -> Result<ChapterStruct> {
+    fn convert_base(mut value: usize, base: usize) -> String {
+        let digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        if value == 0 {
+            return "0".to_string();
+        }
+        let mut res = String::new();
+        while value > 0 {
+            let rem = value % base;
+            res.insert(0, digits.chars().nth(rem).unwrap());
+            value /= base;
+        }
+        res
+    }
+    fn encode(inner: usize, a: usize) -> String {
+        if inner < a {
+            if inner > 35 {
+                (((inner % a) as u8 + 29) as char).to_string()
+            } else {
+                convert_base(inner, 36)
+            }
+        } else {
+            let rec = encode(inner / a, a);
+            let ch = if inner % a > 35 {
+                ((inner % a) as u8 + 29) as char
+            } else {
+                convert_base(inner % a, 36).chars().next().unwrap()
+            };
+            format!("{}{}", rec, ch)
+        }
+    }
+    let mut dmap = std::collections::HashMap::new();
+    for i in (0..c).rev() {
+        let key = encode(i, a);
+        let val = if data[i].is_empty() {
+            key.clone()
+        } else {
+            data[i].clone()
+        };
+        dmap.insert(key, val);
+    }
+    // replace encoded tokens (words) with their mapped values to reconstruct JS source
+    let js = RE_WORD
+        .replace_all(frame, |caps: &regex::Captures| {
+            let key = caps.get(0).unwrap().as_str();
+            dmap.get(key).cloned().unwrap_or_else(|| key.to_string())
+        })
+        .to_string();
+    let caps = RE_JSON.captures(&js).ok_or_else(|| {
+        AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
+    })?;
+    let json_str = caps
+        .get(1)
+        .ok_or_else(|| {
+            AppError::ContentParsing(
+                "Could not extract JSON string from unpacked script.".to_string(),
+            )
+        })?
+        .as_str();
+    Ok(serde_json::from_str(json_str)?)
+}
+
 impl Comic {
     fn new(id: usize, tunnel: usize, delay_ms: u64, output_dir: String) -> Result<Self> {
         let mut headers = HeaderMap::new();
@@ -164,74 +231,6 @@ impl Comic {
         Ok(())
     }
 
-    fn unpack_packed(
-        &self,
-        frame: &str,
-        a: usize,
-        c: usize,
-        data: Vec<String>,
-    ) -> Result<ChapterStruct> {
-        fn convert_base(mut value: usize, base: usize) -> String {
-            let digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            if value == 0 {
-                return "0".to_string();
-            }
-            let mut res = String::new();
-            while value > 0 {
-                let rem = value % base;
-                res.insert(0, digits.chars().nth(rem).unwrap());
-                value /= base;
-            }
-            res
-        }
-        fn encode(inner: usize, a: usize) -> String {
-            if inner < a {
-                if inner > 35 {
-                    (((inner % a) as u8 + 29) as char).to_string()
-                } else {
-                    convert_base(inner, 36)
-                }
-            } else {
-                let rec = encode(inner / a, a);
-                let ch = if inner % a > 35 {
-                    ((inner % a) as u8 + 29) as char
-                } else {
-                    convert_base(inner % a, 36).chars().next().unwrap()
-                };
-                format!("{}{}", rec, ch)
-            }
-        }
-        let mut dmap = std::collections::HashMap::new();
-        for i in (0..c).rev() {
-            let key = encode(i, a);
-            let val = if data[i].is_empty() {
-                key.clone()
-            } else {
-                data[i].clone()
-            };
-            dmap.insert(key, val);
-        }
-        // replace encoded tokens (words) with their mapped values to reconstruct JS source
-        let js = RE_WORD
-            .replace_all(frame, |caps: &regex::Captures| {
-                let key = caps.get(0).unwrap().as_str();
-                dmap.get(key).cloned().unwrap_or_else(|| key.to_string())
-            })
-            .to_string();
-        let caps = RE_JSON.captures(&js).ok_or_else(|| {
-            AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
-        })?;
-        let json_str = caps
-            .get(1)
-            .ok_or_else(|| {
-                AppError::ContentParsing(
-                    "Could not extract JSON string from unpacked script.".to_string(),
-                )
-            })?
-            .as_str();
-        Ok(serde_json::from_str(json_str)?)
-    }
-
     fn get_chapter(&self, href: &str) -> Result<ChapterStruct> {
         let url = format!("{}{}", self.host, href);
         let text = self.client.get(&url).send()?.text()?;
@@ -254,7 +253,7 @@ impl Comic {
             .decode_base64(data_b64)
             .map_err(|_| AppError::ContentParsing("Failed to decode base64 chapter data".to_string()))?;
         let data = data_dec.split('|').map(|s| s.to_string()).collect();
-        self.unpack_packed(frame, a, c, data)
+        unpack_packed(frame, a, c, data)
     }
 
     fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar) -> Result<()> {
