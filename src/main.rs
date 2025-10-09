@@ -336,22 +336,7 @@ impl Comic {
     }
 }
 
-fn main() -> Result<()> {
-    let args = Args::parse();
-    let id = parse_id(&args.url).ok_or(AppError::InvalidUrl)?;
-    let comic = Comic::new(
-        id,
-        args.tunnel,
-        args.delay_ms,
-        args.output_dir,
-    )?;
-    println!("Title: {}", comic.title);
-    for (i, (name, _)) in comic.chapters.iter().enumerate() {
-        println!("{}: {}", i, name);
-    }
-
-    let mut ranges;
-    let chapters_count = comic.chapters.len();
+fn prompt_for_chapters(chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
     loop {
         print!("Select chapters (e.g. 1-3,5): ");
         io::stdout().flush()?;
@@ -369,8 +354,7 @@ fn main() -> Result<()> {
                         continue;
                     }
                 }
-                ranges = parsed_ranges.into_iter().peekable();
-                break;
+                return Ok(parsed_ranges.into_iter());
             }
             Err(_) => {
                 eprintln!("Invalid input format. Please enter again.");
@@ -378,6 +362,23 @@ fn main() -> Result<()> {
             }
         }
     }
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    let id = parse_id(&args.url).ok_or(AppError::InvalidUrl)?;
+    let comic = Comic::new(
+        id,
+        args.tunnel,
+        args.delay_ms,
+        args.output_dir,
+    )?;
+    println!("Title: {}", comic.title);
+    for (i, (name, _)) in comic.chapters.iter().enumerate() {
+        println!("{}: {}", i, name);
+    }
+
+    let mut ranges = prompt_for_chapters(comic.chapters.len())?.peekable();
 
     while let Some(idx) = ranges.next() {
         if let Err(e) = comic.download_chapter(idx) {
