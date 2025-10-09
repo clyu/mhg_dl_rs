@@ -20,6 +20,14 @@ use std::{
 };
 use thiserror::Error;
 use zip::{result::ZipError, write::FileOptions, CompressionMethod, ZipWriter};
+use once_cell::sync::Lazy;
+
+static RE_ID: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap());
+static RE_WORD: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b\w+\b").unwrap());
+static RE_JSON: Lazy<Regex> = Lazy::new(|| Regex::new(r".*\((\{.*\})\).*").unwrap());
+static RE_CHAPTER_DATA: Lazy<Regex> = Lazy::new(|| Regex::new(r".*}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'.*").unwrap());
+static RE_ILLEGAL_CHARS: Lazy<Regex> = Lazy::new(|| Regex::new(r##"[\/:*?"<>|]"##).unwrap());
+
 
 #[derive(Error, Debug)]
 enum AppError {
@@ -37,8 +45,6 @@ enum AppError {
     RangeParse(#[from] range_parser::RangeError),
     #[error("JSON parsing error: {0}")]
     SerdeJson(#[from] serde_json::Error),
-    #[error("Regex error: {0}")]
-    Regex(#[from] regex::Error),
     #[error("Integer parsing error: {0}")]
     ParseInt(#[from] ParseIntError),
     #[error("Zip error: {0}")]
@@ -65,8 +71,7 @@ struct Args {
 }
 
 fn parse_id(s: &str) -> Option<usize> {
-    let re = Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap();
-    re.captures(s)
+    RE_ID.captures(s)
         .and_then(|c| c.get(1))
         .and_then(|m| m.as_str().parse().ok())
 }
@@ -197,15 +202,13 @@ impl Comic {
             dmap.insert(key, val);
         }
         // replace encoded tokens (words) with their mapped values to reconstruct JS source
-        let re_word = Regex::new(r"\b\w+\b")?;
-        let js = re_word
+        let js = RE_WORD
             .replace_all(frame, |caps: &regex::Captures| {
                 let key = caps.get(0).unwrap().as_str();
                 dmap.get(key).cloned().unwrap_or_else(|| key.to_string())
             })
             .to_string();
-        let re_json = Regex::new(r".*\((\{.*\})\).*")?;
-        let caps = re_json.captures(&js).ok_or_else(|| {
+        let caps = RE_JSON.captures(&js).ok_or_else(|| {
             AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
         })?;
         let json_str = caps
@@ -222,8 +225,7 @@ impl Comic {
     fn get_chapter(&self, href: &str) -> Result<ChapterStruct> {
         let url = format!("{}{}", self.host, href);
         let text = self.client.get(&url).send()?.text()?;
-        let re = Regex::new(r".*}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'.*")?;
-        let caps = re
+        let caps = RE_CHAPTER_DATA
             .captures(&text)
             .ok_or_else(|| AppError::ContentParsing(format!("Could not parse chapter data from {}", url)))?;
 
@@ -247,9 +249,8 @@ impl Comic {
 
     fn download_chapter(&self, index: usize) -> Result<()> {
         let (ref name, ref href) = self.chapters[index];
-        let illegal = Regex::new(r##"[\/:*?"<>|]"##)?;
-        let book_safe = illegal.replace_all(&self.title, "_");
-        let chap_safe = illegal.replace_all(&name, "_");
+        let book_safe = RE_ILLEGAL_CHARS.replace_all(&self.title, "_");
+        let chap_safe = RE_ILLEGAL_CHARS.replace_all(&name, "_");
         let zip_path = format!("{}/{}/{}.zip", self.output_dir, book_safe, chap_safe);
         if Path::new(&zip_path).exists() {
             println!("{} already exists, skipping.", &zip_path);
