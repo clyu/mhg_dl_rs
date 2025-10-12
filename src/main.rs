@@ -238,16 +238,16 @@ impl Comic {
             .captures(&text)
             .ok_or_else(|| AppError::ContentParsing(format!("Could not parse chapter data from {}", url)))?;
 
-        let get_cap = |i, name| {
+        let get_cap = |i: usize| {
             caps.get(i)
                 .map(|m| m.as_str())
-                .ok_or_else(|| AppError::ContentParsing(format!("Could not find capture group '{}' in chapter data", name)))
+                .ok_or_else(|| AppError::ContentParsing(format!("Capture group {} not found", i)))
         };
 
-        let frame = get_cap(1, "frame")?;
-        let a: usize = get_cap(2, "a")?.parse()?;
-        let c: usize = get_cap(3, "c")?.parse()?;
-        let data_b64 = get_cap(4, "data_b64")?;
+        let frame = get_cap(1)?;
+        let a: usize = get_cap(2)?.parse()?;
+        let c: usize = get_cap(3)?.parse()?;
+        let data_b64 = get_cap(4)?;
 
         let data_dec = lz_string::Decoder::new()
             .decode_base64(data_b64)
