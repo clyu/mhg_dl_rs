@@ -342,18 +342,35 @@ fn prompt_for_chapters(chapters_count: usize) -> Result<impl Iterator<Item = usi
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         match range_parser::parse(input.trim()) {
-            Ok(mut parsed_ranges) => {
-                parsed_ranges.sort();
-                if let Some(&last) = parsed_ranges.last() {
-                    if last >= chapters_count {
+            Ok(parsed_ranges) => {
+                // The user enters 1-based chapter numbers. We convert them to 0-based indices.
+                let mut indices: Vec<usize> = parsed_ranges
+                    .into_iter()
+                    .filter_map(|n: u32| n.checked_sub(1)) // Safely subtract 1, filtering out 0
+                    .map(|n| n as usize) // Convert u32 to usize
+                    .collect();
+                indices.sort();
+                indices.dedup();
+
+                if let Some(&last_index) = indices.last() {
+                    if last_index >= chapters_count {
                         eprintln!(
-                            "Error: Chapter index {} is out of bounds. Total chapters: {}. Please enter again.",
-                            last, chapters_count
+                            "Error: Chapter {} is out of bounds. Total chapters: {}. Please enter again.",
+                            last_index + 1,
+                            chapters_count
                         );
                         continue;
                     }
                 }
-                return Ok(parsed_ranges.into_iter());
+
+                // If the input was not empty but the list of indices is, it means the user
+                // might have entered only "0" or other invalid ranges that the parser handled gracefully.
+                if indices.is_empty() && !input.trim().is_empty() {
+                    eprintln!("Invalid chapter selection. Please enter numbers between 1 and {}.", chapters_count);
+                    continue;
+                }
+
+                return Ok(indices.into_iter());
             }
             Err(_) => {
                 eprintln!("Invalid input format. Please enter again.");
@@ -374,14 +391,14 @@ fn main() -> Result<()> {
     )?;
     println!("Title: {}", comic.title);
     for (i, (name, _)) in comic.chapters.iter().enumerate() {
-        println!("{}: {}", i, name);
+        println!("{}: {}", i + 1, name);
     }
 
     let mut ranges = prompt_for_chapters(comic.chapters.len())?.peekable();
 
     while let Some(idx) = ranges.next() {
         if let Err(e) = comic.download_chapter(idx) {
-            eprintln!("Failed to download chapter {}: {}", idx, e);
+            eprintln!("Failed to download chapter {}: {}", idx + 1, e);
         }
         if ranges.peek().is_some() {
             thread::sleep(Duration::from_secs(5));
