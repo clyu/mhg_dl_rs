@@ -331,6 +331,7 @@ impl Comic {
         self.download_images(&chap, &chapter_dir, &bar)?;
         self.compress_chapter(&chapter_dir, &zip_path)?;
 
+        bar.finish();
         Ok(())
     }
 }
