@@ -296,11 +296,10 @@ impl Comic {
                 zip.start_file(name, options)?;
                 let data = fs::read(&path)?;
                 zip.write_all(&data)?;
-                fs::remove_file(&path)?;
             }
         }
         zip.finish()?;
-        fs::remove_dir(&chapter_dir)?;
+        fs::remove_dir_all(&chapter_dir)?;
         Ok(())
     }
 
