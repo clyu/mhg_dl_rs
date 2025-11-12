@@ -292,10 +292,11 @@ impl Comic {
             let e = entry?;
             let path = e.path();
             if path.is_file() {
-                let name = path.file_name().unwrap().to_string_lossy();
-                zip.start_file(name, options)?;
-                let data = fs::read(&path)?;
-                zip.write_all(&data)?;
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    zip.start_file(name, options)?;
+                    let mut file = fs::File::open(&path)?;
+                    io::copy(&mut file, &mut zip)?;
+                }
             }
         }
         zip.finish()?;
