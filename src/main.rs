@@ -105,35 +105,18 @@ fn unpack_packed(
     c: usize,
     data: Vec<String>,
 ) -> Result<ChapterStruct> {
-    fn convert_base(mut value: usize, base: usize) -> String {
-        let digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    fn encode(mut value: usize, base: usize) -> String {
+        const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
         if value == 0 {
             return "0".to_string();
         }
         let mut res = String::new();
         while value > 0 {
             let rem = value % base;
-            res.insert(0, digits.chars().nth(rem).unwrap());
+            res.insert(0, DIGITS.chars().nth(rem).unwrap());
             value /= base;
         }
         res
-    }
-    fn encode(inner: usize, a: usize) -> String {
-        if inner < a {
-            if inner > 35 {
-                (((inner % a) as u8 + 29) as char).to_string()
-            } else {
-                convert_base(inner, 36)
-            }
-        } else {
-            let rec = encode(inner / a, a);
-            let ch = if inner % a > 35 {
-                ((inner % a) as u8 + 29) as char
-            } else {
-                convert_base(inner % a, 36).chars().next().unwrap()
-            };
-            format!("{}{}", rec, ch)
-        }
     }
     let mut dmap = std::collections::HashMap::new();
     for i in (0..c).rev() {
