@@ -261,8 +261,8 @@ impl Comic {
             let mut out = fs::File::create(&dst_part)?;
             io::copy(&mut resp, &mut out)?;
             fs::rename(&dst_part, &dst)?;
-            thread::sleep(rand::rng().random_range(self.delay / 2..=self.delay * 3 / 2));
             bar.inc(1);
+            thread::sleep(rand::rng().random_range(self.delay / 2..=self.delay * 3 / 2));
         }
         Ok(())
     }
