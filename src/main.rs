@@ -119,6 +119,13 @@ fn unpack_packed(
         res
     }
     let mut dmap = std::collections::HashMap::new();
+    if c > data.len() {
+        return Err(AppError::ContentParsing(format!(
+            "Packed script dictionary size mismatch: expected {} words, got {}",
+            c,
+            data.len()
+        )));
+    }
     for i in (0..c).rev() {
         let key = encode(i, a);
         let val = if data[i].is_empty() {
