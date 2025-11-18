@@ -271,17 +271,30 @@ impl Comic {
         let zip_file = fs::File::create(&zip_path)?;
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
-        for entry in fs::read_dir(&chapter_dir)? {
-            let e = entry?;
-            let path = e.path();
-            if path.is_file() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    zip.start_file(name, options)?;
-                    let mut file = fs::File::open(&path)?;
-                    io::copy(&mut file, &mut zip)?;
-                }
+
+        let mut files: Vec<PathBuf> = fs::read_dir(&chapter_dir)?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file())
+            .collect();
+
+        // Sort files numerically by the index prefix (e.g., "10" comes after "9")
+        files.sort_by_key(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|s| s.split('_').next())
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(std::usize::MAX)
+        });
+
+        for path in files {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                zip.start_file(name, options)?;
+                let mut file = fs::File::open(&path)?;
+                io::copy(&mut file, &mut zip)?;
             }
         }
+
         zip.finish()?;
         fs::remove_dir_all(&chapter_dir)?;
         Ok(())
