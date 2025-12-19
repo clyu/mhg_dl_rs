@@ -265,6 +265,15 @@ impl Comic {
                 .get(&url)
                 .query(&[("e", &e_str), ("m", &chap.sl.m)])
                 .send()?;
+
+            if !resp.status().is_success() {
+                return Err(AppError::ContentParsing(format!(
+                    "Failed to download image: HTTP {} for {}",
+                    resp.status(),
+                    url
+                )));
+            }
+
             let mut out = fs::File::create(&dst_part)?;
             io::copy(&mut resp, &mut out)?;
             fs::rename(&dst_part, &dst)?;
