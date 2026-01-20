@@ -105,10 +105,17 @@ fn unpack_packed(
     c: usize,
     data: Vec<String>,
 ) -> Result<ChapterStruct> {
-    fn encode(mut value: usize, base: usize) -> String {
+    fn encode(mut value: usize, base: usize) -> Result<String> {
         const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        if base > DIGITS.len() {
+            return Err(AppError::ContentParsing(format!(
+                "Base {} exceeds supported alphabet size (max {})",
+                base,
+                DIGITS.len()
+            )));
+        }
         if value == 0 {
-            return "0".to_string();
+            return Ok("0".to_string());
         }
         let mut res = String::new();
         while value > 0 {
@@ -116,7 +123,7 @@ fn unpack_packed(
             res.insert(0, DIGITS.chars().nth(rem).unwrap());
             value /= base;
         }
-        res
+        Ok(res)
     }
     let mut dmap = std::collections::HashMap::new();
     if c > data.len() {
@@ -127,7 +134,7 @@ fn unpack_packed(
         )));
     }
     for i in (0..c).rev() {
-        let key = encode(i, a);
+        let key = encode(i, a)?;
         let val = if data[i].is_empty() {
             key.clone()
         } else {
