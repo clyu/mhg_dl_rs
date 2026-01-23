@@ -254,9 +254,10 @@ impl Comic {
     }
 
     fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar) -> Result<()> {
+        let width = (chap.files.len() as f64).log10().floor() as usize + 1;
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
-            let dst = chapter_dir.join(format!("{}_{}", i, file));
+            let dst = chapter_dir.join(format!("{:0width$}_{}", i, file, width = width));
             let dst_part = PathBuf::from(format!("{}.part", dst.display()));
             if dst.exists() {
                 bar.inc(1);
