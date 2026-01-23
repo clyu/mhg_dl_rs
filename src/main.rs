@@ -253,7 +253,7 @@ impl Comic {
         unpack_packed(frame, a, c, data)
     }
 
-    fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar) -> Result<()> {
+    fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
         let width = (chap.files.len() as f64).log10().floor() as usize + 1;
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
@@ -271,6 +271,7 @@ impl Comic {
             let mut resp = self
                 .client
                 .get(&url)
+                .header("referer", chapter_url)
                 .query(&[("e", &e_str), ("m", &chap.sl.m)])
                 .send()?;
 
@@ -359,7 +360,8 @@ impl Comic {
         );
         bar.set_message(name.clone());
 
-        self.download_images(&chap, &chapter_dir, &bar)?;
+        let chapter_url = format!("{}{}", self.host, href);
+        self.download_images(&chap, &chapter_dir, &bar, &chapter_url)?;
         self.compress_chapter(&chapter_dir, &zip_path)?;
 
         bar.finish();
