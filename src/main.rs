@@ -282,8 +282,19 @@ impl Comic {
                 )));
             }
 
+            let content_length = resp.content_length();
             let mut out = fs::File::create(&dst_part)?;
-            io::copy(&mut resp, &mut out)?;
+            let bytes_written = io::copy(&mut resp, &mut out)?;
+
+            if let Some(expected) = content_length {
+                if bytes_written != expected {
+                    return Err(AppError::Io(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        format!("Incomplete download: expected {} bytes, got {}", expected, bytes_written),
+                    )));
+                }
+            }
+
             fs::rename(&dst_part, &dst)?;
             bar.inc(1);
             thread::sleep(rand::rng().random_range(self.delay / 2..=self.delay * 3 / 2));
