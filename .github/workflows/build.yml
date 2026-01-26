@@ -39,8 +39,38 @@ jobs:
         echo "date=$(git log -1 --format=%cd --date=format:%Y%m%d)" >> $GITHUB_OUTPUT
         echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+    - name: Prepare binary
+      shell: bash
+      run: |
+        BIN_NAME="${{ env.BINARY_NAME }}-${{ matrix.target }}-${{ steps.git_info.outputs.date }}-${{ steps.git_info.outputs.hash }}${{ matrix.extension }}"
+        cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}${{ matrix.extension }} $BIN_NAME
+        echo "BIN_NAME=$BIN_NAME" >> $GITHUB_ENV
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.BINARY_NAME }}-${{ matrix.target }}-${{ steps.git_info.outputs.date }}-${{ steps.git_info.outputs.hash }}
-        path: target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}${{ matrix.extension }}
+        name: ${{ env.BIN_NAME }}
+        path: ${{ env.BIN_NAME }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          files: artifacts/*
+          prerelease: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
