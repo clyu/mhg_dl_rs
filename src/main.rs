@@ -333,14 +333,7 @@ impl Comic {
             .filter(|path| path.is_file())
             .collect();
 
-        // Sort files numerically by the index prefix (e.g., "10" comes after "9")
-        files.sort_by_key(|path| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|s| s.split('_').next())
-                .and_then(|s| s.parse::<usize>().ok())
-                .unwrap_or(std::usize::MAX)
-        });
+        files.sort();
 
         for path in files {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
