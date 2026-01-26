@@ -64,6 +64,14 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Clean up previous release and tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release delete latest --yes --repo ${{ github.repository }} || true
+          gh api --method DELETE /repos/${{ github.repository }}/git/refs/tags/latest || true
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
