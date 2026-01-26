@@ -32,8 +32,15 @@ jobs:
     - name: Build
       run: cargo build --verbose --release --target ${{ matrix.target }}
 
+    - name: Get Git info
+      id: git_info
+      shell: bash
+      run: |
+        echo "date=$(git log -1 --format=%cd --date=format:%Y%m%d)" >> $GITHUB_OUTPUT
+        echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
+        name: ${{ env.BINARY_NAME }}-${{ matrix.target }}-${{ steps.git_info.outputs.date }}-${{ steps.git_info.outputs.hash }}
         path: target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}${{ matrix.extension }}
