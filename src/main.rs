@@ -20,13 +20,32 @@ use std::{
 };
 use thiserror::Error;
 use zip::{result::ZipError, write::FileOptions, CompressionMethod, ZipWriter};
-use once_cell::sync::Lazy;
+use std::sync::OnceLock;
 
-static RE_ID: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap());
-static RE_WORD: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b\w+\b").unwrap());
-static RE_JSON: Lazy<Regex> = Lazy::new(|| Regex::new(r".*\((\{.*\})\).*").unwrap());
-static RE_CHAPTER_DATA: Lazy<Regex> = Lazy::new(|| Regex::new(r".*}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'.*").unwrap());
-static RE_ILLEGAL_CHARS: Lazy<Regex> = Lazy::new(|| Regex::new(r##"[\/:*?"<>|]"##).unwrap());
+fn re_id() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap())
+}
+
+fn re_word() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\b\w+\b").unwrap())
+}
+
+fn re_json() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r".*\((\{.*\})\).*").unwrap())
+}
+
+fn re_chapter_data() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r".*}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'.*").unwrap())
+}
+
+fn re_illegal_chars() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r##"[\/:*?"<>|]"##).unwrap())
+}
 
 
 #[derive(Error, Debug)]
@@ -71,7 +90,7 @@ struct Args {
 }
 
 fn parse_id(s: &str) -> Option<usize> {
-    RE_ID.captures(s)
+    re_id().captures(s)
         .and_then(|c| c.get(1))
         .and_then(|m| m.as_str().parse().ok())
 }
@@ -143,13 +162,13 @@ fn unpack_packed(
         dmap.insert(key, val);
     }
     // replace encoded tokens (words) with their mapped values to reconstruct JS source
-    let js = RE_WORD
+    let js = re_word()
         .replace_all(frame, |caps: &regex::Captures| {
             let key = caps.get(0).unwrap().as_str();
             dmap.get(key).cloned().unwrap_or_else(|| key.to_string())
         })
         .to_string();
-    let caps = RE_JSON.captures(&js).ok_or_else(|| {
+    let caps = re_json().captures(&js).ok_or_else(|| {
         AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
     })?;
     let json_str = caps
@@ -231,7 +250,7 @@ impl Comic {
     fn get_chapter(&self, href: &str) -> Result<ChapterStruct> {
         let url = format!("{}{}", self.host, href);
         let text = self.client.get(&url).send()?.text()?;
-        let caps = RE_CHAPTER_DATA
+        let caps = re_chapter_data()
             .captures(&text)
             .ok_or_else(|| AppError::ContentParsing(format!("Could not parse chapter data from {}", url)))?;
 
@@ -338,8 +357,8 @@ impl Comic {
 
     fn download_chapter(&self, index: usize) -> Result<()> {
         let (ref name, ref href) = self.chapters[index];
-        let book_safe = RE_ILLEGAL_CHARS.replace_all(&self.title, "_");
-        let chap_safe = RE_ILLEGAL_CHARS.replace_all(&name, "_");
+        let book_safe = re_illegal_chars().replace_all(&self.title, "_");
+        let chap_safe = re_illegal_chars().replace_all(&name, "_");
         let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
         let zip_path = book_dir.join(format!("{}.zip", chap_safe));
         if zip_path.exists() {
