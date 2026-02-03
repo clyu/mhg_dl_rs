@@ -220,17 +220,25 @@ impl Comic {
     fn load_metadata(&mut self, id: usize) -> Result<()> {
         let url = format!("{}/comic/{}", self.host, id);
         let res = self.client.get(&url).send()?.text()?;
-        let document = Html::parse_document(&res);
+        let (title, chapters) = Self::parse_comic_html(&res)?;
+        self.title = title;
+        self.chapters = chapters;
+        Ok(())
+    }
+
+    fn parse_comic_html(html: &str) -> Result<(String, Vec<(String, String)>)> {
+        let document = Html::parse_document(html);
         let sel_title = Selector::parse(".book-title h1")
             .map_err(|e| AppError::ContentParsing(format!("Failed to parse title selector: {:?}", e)))?;
-        self.title = document
+        let title = document
             .select(&sel_title)
             .next()
             .map(|e| e.text().collect::<String>())
-            .ok_or_else(|| AppError::ContentParsing(format!("Could not find title for comic {}", id)))?;
+            .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
         let sel_chap = Selector::parse(".chapter-list ul a")
             .map_err(|e| AppError::ContentParsing(format!("Failed to parse chapter selector: {:?}", e)))?;
         let elements: Vec<_> = document.select(&sel_chap).collect();
+        let mut chapters = Vec::new();
         for element in elements.into_iter().rev() {
             let name = element
                 .value()
@@ -242,17 +250,21 @@ impl Comic {
                 .attr("href")
                 .ok_or_else(|| AppError::ContentParsing("Chapter href attribute not found".to_string()))?
                 .to_string();
-            self.chapters.push((name, href));
+            chapters.push((name, href));
         }
-        Ok(())
+        Ok((title, chapters))
     }
 
     fn get_chapter(&self, href: &str) -> Result<ChapterStruct> {
         let url = format!("{}{}", self.host, href);
         let text = self.client.get(&url).send()?.text()?;
+        Self::parse_chapter_html(&text)
+    }
+
+    fn parse_chapter_html(html: &str) -> Result<ChapterStruct> {
         let caps = re_chapter_data()
-            .captures(&text)
-            .ok_or_else(|| AppError::ContentParsing(format!("Could not parse chapter data from {}", url)))?;
+            .captures(html)
+            .ok_or_else(|| AppError::ContentParsing("Could not parse chapter data".to_string()))?;
 
         let get_cap = |i: usize| {
             caps.get(i)
@@ -322,7 +334,7 @@ impl Comic {
         Ok(())
     }
 
-    fn compress_chapter(&self, chapter_dir: &PathBuf, zip_path: &PathBuf) -> Result<()> {
+    fn compress_chapter(chapter_dir: &PathBuf, zip_path: &PathBuf) -> Result<()> {
         let zip_file = fs::File::create(&zip_path)?;
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
@@ -374,19 +386,19 @@ impl Comic {
 
         let chapter_url = format!("{}{}", self.host, href);
         self.download_images(&chap, &chapter_dir, &bar, &chapter_url)?;
-        self.compress_chapter(&chapter_dir, &zip_path)?;
+        Comic::compress_chapter(&chapter_dir, &zip_path)?;
 
         bar.finish();
         Ok(())
     }
 }
 
-fn prompt_for_chapters(chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
+fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
     loop {
         print!("Select chapters (e.g. 1-3,5): ");
         io::stdout().flush()?;
         let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+        reader.read_line(&mut input)?;
         match range_parser::parse(input.trim()) {
             Ok(parsed_ranges) => {
                 // The user enters 1-based chapter numbers. We convert them to 0-based indices.
@@ -440,7 +452,8 @@ fn main() -> Result<()> {
         println!("{}: {}", i + 1, name);
     }
 
-    let mut ranges = prompt_for_chapters(comic.chapters.len())?.peekable();
+    let mut stdin = io::stdin().lock();
+    let mut ranges = prompt_for_chapters(&mut stdin, comic.chapters.len())?.peekable();
 
     while let Some(idx) = ranges.next() {
         if let Err(e) = comic.download_chapter(idx) {
