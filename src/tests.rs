@@ -65,3 +65,37 @@ fn test_unpack_packed_invalid_base() {
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("exceeds supported alphabet size"), "Error message was: {}", err_msg);
 }
+
+#[test]
+fn test_prompt_for_chapters_valid() {
+    let mut input = std::io::Cursor::new("1-3,5\n");
+    let chapters_count = 10;
+    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap().collect();
+
+    // 1-3 -> 0, 1, 2
+    // 5 -> 4
+    assert_eq!(result, vec![0, 1, 2, 4]);
+}
+
+#[test]
+fn test_prompt_for_chapters_retry_on_invalid() {
+    // First input is out of bounds (11 > 10), second is invalid format, third is valid.
+    let mut input = std::io::Cursor::new("11\ninvalid\n2,4\n");
+    let chapters_count = 10;
+    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap().collect();
+
+    assert_eq!(result, vec![1, 3]);
+}
+
+#[test]
+fn test_prompt_for_chapters_dedup_and_sort() {
+    let mut input = std::io::Cursor::new("5,3-4,3\n");
+    let chapters_count = 10;
+    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap().collect();
+
+    // 5 -> 4
+    // 3-4 -> 2, 3
+    // 3 -> 2
+    // Result should be sorted and unique: 2, 3, 4
+    assert_eq!(result, vec![2, 3, 4]);
+}
