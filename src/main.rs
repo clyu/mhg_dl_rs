@@ -381,12 +381,12 @@ impl Comic {
     }
 }
 
-fn prompt_for_chapters(chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
+fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
     loop {
         print!("Select chapters (e.g. 1-3,5): ");
         io::stdout().flush()?;
         let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+        reader.read_line(&mut input)?;
         match range_parser::parse(input.trim()) {
             Ok(parsed_ranges) => {
                 // The user enters 1-based chapter numbers. We convert them to 0-based indices.
@@ -440,7 +440,8 @@ fn main() -> Result<()> {
         println!("{}: {}", i + 1, name);
     }
 
-    let mut ranges = prompt_for_chapters(comic.chapters.len())?.peekable();
+    let mut stdin = io::stdin().lock();
+    let mut ranges = prompt_for_chapters(&mut stdin, comic.chapters.len())?.peekable();
 
     while let Some(idx) = ranges.next() {
         if let Err(e) = comic.download_chapter(idx) {
