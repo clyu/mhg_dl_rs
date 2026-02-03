@@ -95,14 +95,14 @@ fn parse_id(s: &str) -> Option<usize> {
         .and_then(|m| m.as_str().parse().ok())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct ChapterStruct {
     sl: Sl,
     path: String,
     files: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Sl {
     e: serde_json::Value,
     m: String,
