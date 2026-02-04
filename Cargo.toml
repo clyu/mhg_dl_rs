@@ -19,3 +19,4 @@ thiserror = "2.0.17"
 
 [dev-dependencies]
 tempfile = "3"
+mockito = "1.2"
