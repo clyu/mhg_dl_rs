@@ -34,12 +34,12 @@ fn re_word() -> &'static Regex {
 
 fn re_json() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r".*\((\{.*\})\).*").unwrap())
+    RE.get_or_init(|| Regex::new(r"\((\{.*?\})\)").unwrap())
 }
 
 fn re_chapter_data() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r".*}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'.*").unwrap())
+    RE.get_or_init(|| Regex::new(r"}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'").unwrap())
 }
 
 fn re_illegal_chars() -> &'static Regex {
