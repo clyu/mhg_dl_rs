@@ -360,7 +360,7 @@ impl Comic {
         Ok(())
     }
 
-    fn download_chapter(&self, index: usize) -> Result<()> {
+    fn download_chapter(&self, index: usize) -> Result<bool> {
         let (ref name, ref href) = self.chapters[index];
         let book_safe = re_illegal_chars().replace_all(&self.title, "_");
         let chap_safe = re_illegal_chars().replace_all(&name, "_");
@@ -368,7 +368,7 @@ impl Comic {
         let zip_path = book_dir.join(format!("{}.zip", chap_safe));
         if zip_path.exists() {
             println!("{} already exists, skipping.", zip_path.display());
-            return Ok(());
+            return Ok(false);
         }
         let chap = self.get_chapter(href)?;
         let chapter_dir = book_dir.join(chap_safe.as_ref());
@@ -389,7 +389,7 @@ impl Comic {
         Comic::compress_chapter(&chapter_dir, &zip_path)?;
 
         bar.finish();
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -443,10 +443,14 @@ fn main() -> Result<()> {
     let mut ranges = prompt_for_chapters(&mut stdin, comic.chapters.len())?.peekable();
 
     while let Some(idx) = ranges.next() {
-        if let Err(e) = comic.download_chapter(idx) {
-            eprintln!("Failed to download chapter {}: {}", idx + 1, e);
-        }
-        if ranges.peek().is_some() {
+        let downloaded = match comic.download_chapter(idx) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Failed to download chapter {}: {}", idx + 1, e);
+                true // Sleep on error to avoid rapid retries if there's a connection issue
+            }
+        };
+        if downloaded && ranges.peek().is_some() {
             thread::sleep(Duration::from_secs(5));
         }
     }
