@@ -410,20 +410,7 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
                 indices.sort();
                 indices.dedup();
 
-                if let Some(&last_index) = indices.last() {
-                    if last_index >= chapters_count {
-                        eprintln!(
-                            "Error: Chapter {} is out of bounds. Total chapters: {}. Please enter again.",
-                            last_index + 1,
-                            chapters_count
-                        );
-                        continue;
-                    }
-                }
-
-                // If the input was not empty but the list of indices is, it means the user
-                // might have entered only "0" or other invalid ranges that the parser handled gracefully.
-                if indices.is_empty() && !input.trim().is_empty() {
+                if indices.is_empty() || indices.last().map_or(false, |&i| i >= chapters_count) {
                     eprintln!("Invalid chapter selection. Please enter numbers between 1 and {}.", chapters_count);
                     continue;
                 }
