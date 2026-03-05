@@ -44,7 +44,7 @@ fn re_chapter_data() -> &'static Regex {
 
 fn re_illegal_chars() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r##"[\/:*?"<>|]"##).unwrap())
+    RE.get_or_init(|| Regex::new(r##"[\\/:*?"<>|]"##).unwrap())
 }
 
 
