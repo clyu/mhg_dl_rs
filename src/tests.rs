@@ -579,3 +579,70 @@ fn test_directory_traversal_prevention() {
         assert!(!safe_path.contains('/'), "Path: {} still contains /", path);
     }
 }
+
+#[test]
+fn test_download_incomplete_file() {
+    use std::net::TcpListener;
+    use std::io::{Read, Write};
+    use std::thread;
+    use tempfile::TempDir;
+
+    // 1. Set up a minimal Mock Server
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_thread = thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buffer = [0; 512];
+            let _ = stream.read(&mut buffer); // Read request
+
+            // Return Content-Length: 100, but only provide 50 bytes then disconnect
+            let response = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n";
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.write_all(&[0u8; 50]);
+            // The stream will be closed automatically when the thread ends (RAII)
+        }
+    });
+
+    // 2. Initialize test environment
+    let temp_dir = TempDir::new().unwrap();
+    let chapter_dir = temp_dir.path().to_path_buf();
+    let bar = ProgressBar::hidden();
+
+    let client = reqwest::blocking::Client::new();
+    let comic = Comic {
+        client,
+        host: "http://localhost".to_string(),
+        tunnel: format!("http://127.0.0.1:{}", port),
+        delay: Duration::from_millis(0),
+        title: "Test Comic".to_string(),
+        chapters: vec![],
+        output_dir: temp_dir.path().to_str().unwrap().to_string(),
+    };
+
+    let chap = ChapterStruct {
+        sl: Sl { e: serde_json::Value::String("test_e".to_string()), m: "test_m".to_string() },
+        path: "/".to_string(),
+        files: vec!["test.jpg".to_string()],
+    };
+
+    // 3. Execute download and verify result
+    let result = comic.download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter");
+
+    assert!(result.is_err());
+    let err_msg = format!("{}", result.unwrap_err());
+    // Accept custom Incomplete download or end of file errors thrown by reqwest
+    assert!(
+        err_msg.contains("Incomplete download") ||
+        err_msg.contains("end of file") ||
+        err_msg.contains("UnexpectedEof"),
+        "Error message should mention incomplete download or EOF, got: {}", err_msg
+    );
+
+    // 4. Verify that the final file was not renamed (due to download failure)
+    // Expected filename is "0_test.jpg" (since width=1)
+    let final_path = chapter_dir.join("0_test.jpg");
+    assert!(!final_path.exists(), "Final file should not exist after incomplete download");
+
+    server_thread.join().unwrap();
+}
