@@ -646,3 +646,47 @@ fn test_download_incomplete_file() {
 
     server_thread.join().unwrap();
 }
+
+#[test]
+fn test_download_resume_logic() {
+    use tempfile::TempDir;
+    use std::fs;
+
+    let temp_dir = TempDir::new().unwrap();
+    let chapter_dir = temp_dir.path().to_path_buf();
+    let bar = ProgressBar::hidden();
+
+    // Create a dummy file that matches what download_images expects
+    // For 1 file, width is 1. Filename: 0_test.jpg
+    let existing_file = chapter_dir.join("0_test.jpg");
+    let original_content = "already here";
+    fs::write(&existing_file, original_content).unwrap();
+
+    let client = reqwest::blocking::Client::new();
+    let comic = Comic {
+        client,
+        host: "http://localhost".to_string(),
+        tunnel: "http://invalid-host-should-not-be-reached".to_string(),
+        delay: Duration::from_millis(0),
+        title: "Test Comic".to_string(),
+        chapters: vec![],
+        output_dir: temp_dir.path().to_str().unwrap().to_string(),
+    };
+
+    let chap = ChapterStruct {
+        sl: Sl { e: serde_json::Value::String("test_e".to_string()), m: "test_m".to_string() },
+        path: "/".to_string(),
+        files: vec!["test.jpg".to_string()],
+    };
+
+    // If the logic is correct, it will see 0_test.jpg exists and skip network calls.
+    // If it attempts to download, it will fail because the tunnel host is invalid.
+    let result = comic.download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter");
+
+    assert!(result.is_ok(), "Should skip existing file and return Ok, but got error");
+
+    // Verify content remains unchanged and progress bar incremented
+    let content = fs::read_to_string(&existing_file).unwrap();
+    assert_eq!(content, original_content);
+    assert_eq!(bar.position(), 1);
+}
