@@ -690,3 +690,43 @@ fn test_download_resume_logic() {
     assert_eq!(content, original_content);
     assert_eq!(bar.position(), 1);
 }
+
+#[test]
+fn test_download_images_invalid_sl_e() {
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let chapter_dir = temp_dir.path().to_path_buf();
+    let bar = ProgressBar::hidden();
+
+    let client = reqwest::blocking::Client::new();
+    let comic = Comic {
+        client,
+        host: "http://localhost".to_string(),
+        tunnel: "http://localhost".to_string(),
+        delay: Duration::from_millis(0),
+        title: "Test Comic".to_string(),
+        chapters: vec![],
+        output_dir: temp_dir.path().to_str().unwrap().to_string(),
+    };
+
+    // Case 1: sl.e is a boolean (invalid)
+    let chap_bool = ChapterStruct {
+        sl: Sl { e: serde_json::Value::Bool(true), m: "test_m".to_string() },
+        path: "/".to_string(),
+        files: vec!["test.jpg".to_string()],
+    };
+    let result = comic.download_images(&chap_bool, &chapter_dir, &bar, "http://localhost/chapter");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("sl.e is not a string or number"));
+
+    // Case 2: sl.e is Null (invalid)
+    let chap_null = ChapterStruct {
+        sl: Sl { e: serde_json::Value::Null, m: "test_m".to_string() },
+        path: "/".to_string(),
+        files: vec!["test.jpg".to_string()],
+    };
+    let result = comic.download_images(&chap_null, &chapter_dir, &bar, "http://localhost/chapter");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("sl.e is not a string or number"));
+}
