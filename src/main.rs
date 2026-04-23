@@ -6,8 +6,6 @@ use reqwest::{
 };
 use scraper::{Html, Selector};
 use serde::Deserialize;
-use serde_json;
-use lz_string;
 use regex::Regex;
 use rand::Rng;
 use std::{
