@@ -364,7 +364,7 @@ impl Comic {
         let book_safe = re_illegal_chars().replace_all(&self.title, "_");
         let chap_safe = re_illegal_chars().replace_all(&name, "_");
         let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
-        let zip_path = book_dir.join(format!("{}.zip", chap_safe));
+        let zip_path = book_dir.join(format!("{}_{}.cbz", book_safe, chap_safe));
         if zip_path.exists() {
             println!("{} already exists, skipping.", zip_path.display());
             return Ok(false);

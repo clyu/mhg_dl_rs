@@ -362,7 +362,7 @@ fn test_compress_chapter() {
         fs::write(chapter_dir.join(file), "fake image data").unwrap();
     }
 
-    let zip_path = test_dir.join("chapter_test.zip");
+    let zip_path = test_dir.join("chapter_test.cbz");
 
     // Call the actual compress_chapter method
     Comic::compress_chapter(&chapter_dir, &zip_path).unwrap();
@@ -540,7 +540,7 @@ fn test_compress_chapter_file_ordering() {
         std::fs::write(chapter_dir.join(filename), b"image data").unwrap();
     }
 
-    let zip_path = test_dir.join("test.zip");
+    let zip_path = test_dir.join("test.cbz");
 
     // Call the actual compress_chapter method
     Comic::compress_chapter(&chapter_dir, &zip_path).unwrap();
