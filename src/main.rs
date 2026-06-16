@@ -75,7 +75,11 @@ type Result<T> = std::result::Result<T, AppError>;
 #[clap(author, version, about)]
 struct Args {
     /// Manhuagui URL or numeric ID
-    url: String,
+    #[clap(value_name = "URL", required_unless_present = "search")]
+    url: Option<String>,
+    /// Search keyword for comics
+    #[clap(short, long)]
+    search: Option<String>,
     /// Tunnel line: 0=i,1=eu,2=us
     #[clap(short, long, default_value_t = 0)]
     tunnel: usize,
@@ -104,6 +108,12 @@ struct ChapterStruct {
 struct Sl {
     e: serde_json::Value,
     m: String,
+}
+
+#[derive(Debug, Clone)]
+struct SearchResult {
+    title: String,
+    comic_id: usize,
 }
 
 struct Comic {
@@ -178,6 +188,44 @@ fn unpack_packed(
         })?
         .as_str();
     Ok(serde_json::from_str(json_str)?)
+}
+
+fn search_comics(client: &Client, keyword: &str) -> Result<Vec<SearchResult>> {
+    let encoded_keyword = urlencoding::encode(keyword);
+    let url = format!("https://tw.manhuagui.com/s/{}.html", encoded_keyword);
+    let res = client.get(&url).send()?.text()?;
+    parse_search_results(&res)
+}
+
+fn parse_search_results(html: &str) -> Result<Vec<SearchResult>> {
+    let document = Html::parse_document(html);
+
+    let sel_comics = Selector::parse("div.book-result ul li.cf")
+        .map_err(|e| AppError::ContentParsing(format!("Failed to parse search selector: {:?}", e)))?;
+
+    let mut results = Vec::new();
+
+    for li in document.select(&sel_comics) {
+        let sel_link = Selector::parse("a.bcover")
+            .map_err(|e| AppError::ContentParsing(format!("Failed to parse link selector: {:?}", e)))?;
+
+        if let Some(link) = li.select(&sel_link).next() {
+            if let Some(href) = link.value().attr("href") {
+                if let Some(id_str) = href.split('/').find(|s| !s.is_empty() && s.chars().all(|c| c.is_numeric())) {
+                    if let Ok(comic_id) = id_str.parse::<usize>() {
+                        if let Some(title) = link.value().attr("title") {
+                            results.push(SearchResult {
+                                title: title.to_string(),
+                                comic_id,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 impl Comic {
@@ -392,6 +440,24 @@ impl Comic {
     }
 }
 
+fn prompt_for_comic_selection<R: io::BufRead>(reader: &mut R, comics_count: usize) -> Result<usize> {
+    loop {
+        print!("Select a comic (enter number): ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        reader.read_line(&mut input)?;
+        match input.trim().parse::<usize>() {
+            Ok(n) if n >= 1 && n <= comics_count => {
+                return Ok(n - 1);
+            }
+            _ => {
+                eprintln!("Invalid selection. Please enter a number between 1 and {}.", comics_count);
+                continue;
+            }
+        }
+    }
+}
+
 fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
     loop {
         print!("Select chapters (e.g. 1-3,5): ");
@@ -426,7 +492,44 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let id = parse_id(&args.url).ok_or(AppError::InvalidUrl)?;
+    let mut stdin = io::stdin().lock();
+
+    let id = if let Some(ref search_keyword) = args.search {
+        let mut headers = HeaderMap::new();
+        for (key, value) in &[
+            ("accept", "image/webp,image/apng,image/*,*/*;q=0.8"),
+            ("accept-encoding", "gzip, deflate, br"),
+            ("accept-language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,zh-CN;q=0.6"),
+            ("cache-control", "no-cache"),
+            ("pragma", "no-cache"),
+            ("referer", "https://www.manhuagui.com/"),
+            ("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36"),
+        ] {
+            headers.insert(*key, value.parse()?);
+        }
+        let client = reqwest::blocking::Client::builder()
+            .default_headers(headers)
+            .build()?;
+
+        let results = search_comics(&client, search_keyword)?;
+
+        if results.is_empty() {
+            eprintln!("No comics found for '{}'", search_keyword);
+            return Err(AppError::ContentParsing("No search results".to_string()));
+        }
+
+        println!("Search results for '{}':", search_keyword);
+        for (i, result) in results.iter().enumerate() {
+            println!("{}. {}", i + 1, result.title);
+        }
+
+        let selected_id = prompt_for_comic_selection(&mut stdin, results.len())?;
+        results[selected_id].comic_id
+    } else {
+        let url = args.url.as_ref().ok_or(AppError::InvalidUrl)?;
+        parse_id(url).ok_or(AppError::InvalidUrl)?
+    };
+
     let comic = Comic::new(
         id,
         args.tunnel,
@@ -438,7 +541,6 @@ fn main() -> Result<()> {
         println!("{}: {}", i + 1, name);
     }
 
-    let mut stdin = io::stdin().lock();
     let mut ranges = prompt_for_chapters(&mut stdin, comic.chapters.len())?.peekable();
 
     while let Some(idx) = ranges.next() {
