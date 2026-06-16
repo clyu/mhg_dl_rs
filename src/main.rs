@@ -45,6 +45,25 @@ fn re_illegal_chars() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r##"[\\/:*?"<>|]"##).unwrap())
 }
 
+fn sel_comics() -> &'static Selector {
+    static SEL: OnceLock<Selector> = OnceLock::new();
+    SEL.get_or_init(|| Selector::parse("div.book-result ul li.cf").unwrap())
+}
+
+fn sel_link() -> &'static Selector {
+    static SEL: OnceLock<Selector> = OnceLock::new();
+    SEL.get_or_init(|| Selector::parse("a.bcover").unwrap())
+}
+
+fn sel_title() -> &'static Selector {
+    static SEL: OnceLock<Selector> = OnceLock::new();
+    SEL.get_or_init(|| Selector::parse(".book-title h1").unwrap())
+}
+
+fn sel_chap() -> &'static Selector {
+    static SEL: OnceLock<Selector> = OnceLock::new();
+    SEL.get_or_init(|| Selector::parse(".chapter-list ul a").unwrap())
+}
 
 #[derive(Error, Debug)]
 enum AppError {
@@ -218,16 +237,10 @@ fn search_comics(client: &Client, keyword: &str) -> Result<Vec<SearchResult>> {
 fn parse_search_results(html: &str) -> Result<Vec<SearchResult>> {
     let document = Html::parse_document(html);
 
-    let sel_comics = Selector::parse("div.book-result ul li.cf")
-        .map_err(|e| AppError::ContentParsing(format!("Failed to parse search selector: {:?}", e)))?;
-
     let mut results = Vec::new();
 
-    for li in document.select(&sel_comics) {
-        let sel_link = Selector::parse("a.bcover")
-            .map_err(|e| AppError::ContentParsing(format!("Failed to parse link selector: {:?}", e)))?;
-
-        if let Some(link) = li.select(&sel_link).next() {
+    for li in document.select(sel_comics()) {
+        if let Some(link) = li.select(sel_link()).next() {
             if let Some(href) = link.value().attr("href") {
                 if let Some(id_str) = href.split('/').find(|s| !s.is_empty() && s.chars().all(|c| c.is_numeric())) {
                     if let Ok(comic_id) = id_str.parse::<usize>() {
@@ -277,16 +290,12 @@ impl Comic {
 
     fn parse_comic_html(html: &str) -> Result<(String, Vec<(String, String)>)> {
         let document = Html::parse_document(html);
-        let sel_title = Selector::parse(".book-title h1")
-            .map_err(|e| AppError::ContentParsing(format!("Failed to parse title selector: {:?}", e)))?;
         let title = document
-            .select(&sel_title)
+            .select(sel_title())
             .next()
             .map(|e| e.text().collect::<String>())
             .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
-        let sel_chap = Selector::parse(".chapter-list ul a")
-            .map_err(|e| AppError::ContentParsing(format!("Failed to parse chapter selector: {:?}", e)))?;
-        let elements: Vec<_> = document.select(&sel_chap).collect();
+        let elements: Vec<_> = document.select(sel_chap()).collect();
         let mut chapters = Vec::new();
         for element in elements.into_iter().rev() {
             let name = element
