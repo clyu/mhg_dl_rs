@@ -169,7 +169,6 @@ fn unpack_packed(
         };
         dmap.insert(key, val);
     }
-    // replace encoded tokens (words) with their mapped values to reconstruct JS source
     let js = re_word()
         .replace_all(frame, |caps: &regex::Captures| {
             let key = caps.get(0).unwrap().as_str();
@@ -188,6 +187,25 @@ fn unpack_packed(
         })?
         .as_str();
     Ok(serde_json::from_str(json_str)?)
+}
+
+fn build_client() -> Result<Client> {
+    let mut headers = HeaderMap::new();
+    for (key, value) in &[
+        ("accept", "image/webp,image/apng,image/*,*/*;q=0.8"),
+        ("accept-encoding", "gzip, deflate, br"),
+        ("accept-language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,zh-CN;q=0.6"),
+        ("cache-control", "no-cache"),
+        ("pragma", "no-cache"),
+        ("referer", "https://tw.manhuagui.com/"),
+        ("sec-fetch-dest", "image"),
+        ("sec-fetch-mode", "no-cors"),
+        ("sec-fetch-site", "cross-site"),
+        ("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36"),
+    ] {
+        headers.insert(*key, value.parse()?);
+    }
+    Ok(Client::builder().default_headers(headers).build()?)
 }
 
 fn search_comics(client: &Client, keyword: &str) -> Result<Vec<SearchResult>> {
@@ -230,22 +248,7 @@ fn parse_search_results(html: &str) -> Result<Vec<SearchResult>> {
 
 impl Comic {
     fn new(id: usize, tunnel: usize, delay_ms: u64, output_dir: String) -> Result<Self> {
-        let mut headers = HeaderMap::new();
-        for (key, value) in &[
-            ("accept", "image/webp,image/apng,image/*,*/*;q=0.8"),
-            ("accept-encoding", "gzip, deflate, br"),
-            ("accept-language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,zh-CN;q=0.6"),
-            ("cache-control", "no-cache"),
-            ("pragma", "no-cache"),
-            ("referer", "https://www.manhuagui.com/"),
-            ("sec-fetch-dest", "image"),
-            ("sec-fetch-mode", "no-cors"),
-            ("sec-fetch-site", "cross-site"),
-            ("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36"),
-        ] {
-            headers.insert(*key, value.parse()?);
-        }
-        let client = Client::builder().default_headers(headers).build()?;
+        let client = build_client()?;
         let host = String::from("https://tw.manhuagui.com");
         let channels = ["i", "eu", "us"];
         let tn = channels.get(tunnel).unwrap_or(&"i");
@@ -408,9 +411,9 @@ impl Comic {
     }
 
     fn download_chapter(&self, index: usize) -> Result<bool> {
-        let (ref name, ref href) = self.chapters[index];
+        let (name, href) = &self.chapters[index];
         let book_safe = re_illegal_chars().replace_all(&self.title, "_");
-        let chap_safe = re_illegal_chars().replace_all(&name, "_");
+        let chap_safe = re_illegal_chars().replace_all(name, "_");
         let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
         let zip_path = book_dir.join(format!("{}_{}.cbz", book_safe, chap_safe));
         if zip_path.exists() {
@@ -426,7 +429,7 @@ impl Comic {
                 .template(
                     "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
                 )
-                .unwrap() // This unwrap is on ProgressStyle, which is safe if the template is valid
+                .unwrap()
                 .progress_chars("#>-"),
         );
         bar.set_message(name.clone());
@@ -495,21 +498,7 @@ fn main() -> Result<()> {
     let mut stdin = io::stdin().lock();
 
     let id = if let Some(ref search_keyword) = args.search {
-        let mut headers = HeaderMap::new();
-        for (key, value) in &[
-            ("accept", "image/webp,image/apng,image/*,*/*;q=0.8"),
-            ("accept-encoding", "gzip, deflate, br"),
-            ("accept-language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,zh-CN;q=0.6"),
-            ("cache-control", "no-cache"),
-            ("pragma", "no-cache"),
-            ("referer", "https://www.manhuagui.com/"),
-            ("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36"),
-        ] {
-            headers.insert(*key, value.parse()?);
-        }
-        let client = reqwest::blocking::Client::builder()
-            .default_headers(headers)
-            .build()?;
+        let client = build_client()?;
 
         let results = search_comics(&client, search_keyword)?;
 
