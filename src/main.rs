@@ -260,8 +260,13 @@ fn parse_search_results(html: &str) -> Result<Vec<SearchResult>> {
 }
 
 impl Comic {
-    fn new(id: usize, tunnel: usize, delay_ms: u64, output_dir: String) -> Result<Self> {
-        let client = build_client()?;
+    fn new(
+        id: usize,
+        client: Client,
+        tunnel: usize,
+        delay_ms: u64,
+        output_dir: String,
+    ) -> Result<Self> {
         let host = String::from("https://tw.manhuagui.com");
         let channels = ["i", "eu", "us"];
         let tn = channels.get(tunnel).unwrap_or(&"i");
@@ -505,10 +510,9 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
 fn main() -> Result<()> {
     let args = Args::parse();
     let mut stdin = io::stdin().lock();
+    let client = build_client()?;
 
     let id = if let Some(ref search_keyword) = args.search {
-        let client = build_client()?;
-
         let results = search_comics(&client, search_keyword)?;
 
         if results.is_empty() {
@@ -530,6 +534,7 @@ fn main() -> Result<()> {
 
     let comic = Comic::new(
         id,
+        client,
         args.tunnel,
         args.delay_ms,
         args.output_dir,
