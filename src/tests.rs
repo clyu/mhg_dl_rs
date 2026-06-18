@@ -730,3 +730,29 @@ fn test_download_images_invalid_sl_e() {
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("sl.e is not a string or number"));
 }
+
+#[test]
+fn test_parse_search_results_page() {
+    let html = load_test_html("金田一.html");
+    let (results, next_page) = parse_search_results(&html).unwrap();
+
+    assert_eq!(results.len(), 10);
+    assert_eq!(results[0].title, "金田一爸爸事件簿");
+    assert_eq!(results[0].comic_id, 54544);
+    assert_eq!(results[9].title, "金田一少年事件簿 鍊金術殺人事件");
+    assert_eq!(results[9].comic_id, 4825);
+
+    assert!(next_page.is_some());
+    let next_url = next_page.unwrap();
+    assert!(next_url.contains("_p2"));
+}
+
+#[test]
+fn test_parse_search_results_last_page() {
+    let html = load_test_html("金田一_p3.html");
+    let (results, next_page) = parse_search_results(&html).unwrap();
+
+    assert!(!results.is_empty());
+    assert_eq!(results.len(), 8); // 28 total - 10 (page 1) - 10 (page 2) = 8
+    assert!(next_page.is_none());
+}

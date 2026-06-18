@@ -1,4 +1,8 @@
 use clap::Parser;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    terminal,
+};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::{
     blocking::Client,
@@ -63,6 +67,11 @@ fn sel_title() -> &'static Selector {
 fn sel_chap() -> &'static Selector {
     static SEL: OnceLock<Selector> = OnceLock::new();
     SEL.get_or_init(|| Selector::parse(".chapter-list ul a").unwrap())
+}
+
+fn sel_pager_links() -> &'static Selector {
+    static SEL: OnceLock<Selector> = OnceLock::new();
+    SEL.get_or_init(|| Selector::parse("div.pager a").unwrap())
 }
 
 #[derive(Error, Debug)]
@@ -227,14 +236,34 @@ fn build_client() -> Result<Client> {
     Ok(Client::builder().default_headers(headers).build()?)
 }
 
-fn search_comics(client: &Client, keyword: &str) -> Result<Vec<SearchResult>> {
-    let encoded_keyword = urlencoding::encode(keyword);
-    let url = format!("https://tw.manhuagui.com/s/{}.html", encoded_keyword);
-    let res = client.get(&url).send()?.text()?;
+fn search_comics(client: &Client, url: &str) -> Result<(Vec<SearchResult>, Option<String>)> {
+    let res = client.get(url).send()?.text()?;
     parse_search_results(&res)
 }
 
-fn parse_search_results(html: &str) -> Result<Vec<SearchResult>> {
+fn wait_for_space() -> bool {
+    if terminal::enable_raw_mode().is_err() {
+        return false;
+    }
+    let result = loop {
+        match event::read() {
+            Ok(Event::Key(KeyEvent {
+                code: KeyCode::Char(' '),
+                kind: KeyEventKind::Press,
+                ..
+            })) => break true,
+            Ok(Event::Key(KeyEvent {
+                kind: KeyEventKind::Press,
+                ..
+            })) => break false,
+            _ => {}
+        }
+    };
+    let _ = terminal::disable_raw_mode();
+    result
+}
+
+fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>)> {
     let document = Html::parse_document(html);
 
     let mut results = Vec::new();
@@ -256,7 +285,12 @@ fn parse_search_results(html: &str) -> Result<Vec<SearchResult>> {
         }
     }
 
-    Ok(results)
+    let next_page = document.select(sel_pager_links())
+        .find(|a| a.text().collect::<String>().trim() == "下一頁")
+        .and_then(|a| a.value().attr("href"))
+        .map(|s| s.to_string());
+
+    Ok((results, next_page))
 }
 
 impl Comic {
@@ -512,24 +546,47 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let mut stdin = io::stdin().lock();
     let client = build_client()?;
 
     let id = if let Some(ref search_keyword) = args.search {
-        let results = search_comics(&client, search_keyword)?;
+        let first_url = format!("https://tw.manhuagui.com/s/{}.html", urlencoding::encode(search_keyword));
+        let mut all_results: Vec<SearchResult> = Vec::new();
+        let mut next_url: Option<String> = Some(first_url);
 
-        if results.is_empty() {
+        println!("Search results for '{}':", search_keyword);
+
+        while let Some(url) = next_url {
+            let (page_results, maybe_next) = search_comics(&client, &url)?;
+            let offset = all_results.len();
+            for (i, r) in page_results.iter().enumerate() {
+                println!("{}. {}", offset + i + 1, r.title);
+            }
+            all_results.extend(page_results);
+
+            next_url = if let Some(path) = maybe_next {
+                print!("--- Press SPACE for next page, any other key to stop ---");
+                io::stdout().flush()?;
+                if wait_for_space() {
+                    println!();
+                    Some(format!("https://tw.manhuagui.com{}", path))
+                } else {
+                    println!();
+                    None
+                }
+            } else {
+                None
+            };
+        }
+
+        if all_results.is_empty() {
             eprintln!("No comics found for '{}'", search_keyword);
             return Err(AppError::ContentParsing("No search results".to_string()));
         }
 
-        println!("Search results for '{}':", search_keyword);
-        for (i, result) in results.iter().enumerate() {
-            println!("{}. {}", i + 1, result.title);
-        }
-
-        let selected_id = prompt_for_comic_selection(&mut stdin, results.len())?;
-        results[selected_id].comic_id
+        let mut stdin = io::stdin().lock();
+        let selected_id = prompt_for_comic_selection(&mut stdin, all_results.len())?;
+        drop(stdin);
+        all_results[selected_id].comic_id
     } else {
         let url = args.url.as_ref().ok_or(AppError::InvalidUrl)?;
         parse_id(url).ok_or(AppError::InvalidUrl)?
@@ -547,6 +604,7 @@ fn main() -> Result<()> {
         println!("{}: {}", i + 1, name);
     }
 
+    let mut stdin = io::stdin().lock();
     let mut ranges = prompt_for_chapters(&mut stdin, comic.chapters.len())?.peekable();
 
     while let Some(idx) = ranges.next() {
