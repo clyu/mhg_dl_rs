@@ -226,9 +226,9 @@ fn build_client() -> Result<Client> {
         ("cache-control", "no-cache"),
         ("pragma", "no-cache"),
         ("referer", "https://tw.manhuagui.com/"),
-        ("sec-fetch-dest", "image"),
-        ("sec-fetch-mode", "no-cors"),
-        ("sec-fetch-site", "cross-site"),
+        ("sec-fetch-dest", "document"),
+        ("sec-fetch-mode", "navigate"),
+        ("sec-fetch-site", "same-origin"),
         ("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36"),
     ] {
         headers.insert(*key, value.parse()?);
@@ -404,6 +404,9 @@ impl Comic {
                 .client
                 .get(&url)
                 .header("referer", chapter_url)
+                .header("sec-fetch-dest", "image")
+                .header("sec-fetch-mode", "no-cors")
+                .header("sec-fetch-site", "cross-site")
                 .query(&[("e", &e_str), ("m", &chap.sl.m)])
                 .send()?;
 
