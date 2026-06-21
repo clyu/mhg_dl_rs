@@ -74,6 +74,11 @@ fn sel_pager_links() -> &'static Selector {
     SEL.get_or_init(|| Selector::parse("div.pager a").unwrap())
 }
 
+fn sel_viewstate() -> &'static Selector {
+    static SEL: OnceLock<Selector> = OnceLock::new();
+    SEL.get_or_init(|| Selector::parse("input#__VIEWSTATE").unwrap())
+}
+
 #[derive(Error, Debug)]
 enum AppError {
     #[error("Invalid manhuagui URL or ID")]
@@ -293,6 +298,27 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
     Ok((results, next_page))
 }
 
+fn chapters_from_elements<'a>(
+    elements: impl Iterator<Item = scraper::ElementRef<'a>>,
+) -> Result<Vec<(String, String)>> {
+    let elements: Vec<_> = elements.collect();
+    let mut chapters = Vec::new();
+    for element in elements.into_iter().rev() {
+        let name = element
+            .value()
+            .attr("title")
+            .ok_or_else(|| AppError::ContentParsing("Chapter title attribute not found".to_string()))?
+            .to_string();
+        let href = element
+            .value()
+            .attr("href")
+            .ok_or_else(|| AppError::ContentParsing("Chapter href attribute not found".to_string()))?
+            .to_string();
+        chapters.push((name, href));
+    }
+    Ok(chapters)
+}
+
 impl Comic {
     fn new(
         id: usize,
@@ -334,21 +360,29 @@ impl Comic {
             .next()
             .map(|e| e.text().collect::<String>())
             .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
-        let elements: Vec<_> = document.select(sel_chap()).collect();
-        let mut chapters = Vec::new();
-        for element in elements.into_iter().rev() {
-            let name = element
-                .value()
-                .attr("title")
-                .ok_or_else(|| AppError::ContentParsing("Chapter title attribute not found".to_string()))?
-                .to_string();
-            let href = element
-                .value()
-                .attr("href")
-                .ok_or_else(|| AppError::ContentParsing("Chapter href attribute not found".to_string()))?
-                .to_string();
-            chapters.push((name, href));
+
+        let chapters = chapters_from_elements(document.select(sel_chap()))?;
+        if !chapters.is_empty() {
+            return Ok((title, chapters));
         }
+
+        if let Some(vs_val) = document
+            .select(sel_viewstate())
+            .next()
+            .and_then(|e| e.value().attr("value"))
+        {
+            let decoded = lz_string::Decoder::new()
+                .decode_base64(vs_val)
+                .map_err(|_| AppError::ContentParsing(
+                    "Failed to decode __VIEWSTATE".to_string(),
+                ))?;
+            let inner = Html::parse_fragment(&decoded);
+            let chapters = chapters_from_elements(inner.select(sel_chap()))?;
+            if !chapters.is_empty() {
+                return Ok((title, chapters));
+            }
+        }
+
         Ok((title, chapters))
     }
 

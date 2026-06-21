@@ -147,6 +147,20 @@ fn test_comic_metadata_extraction_from_real_html() {
 }
 
 #[test]
+fn test_comic_metadata_extraction_adult_gated() {
+    let html = load_test_html("comic_10528.html");
+    let (title, chapters) = Comic::parse_comic_html(&html)
+        .expect("Failed to parse adult-gated comic HTML");
+
+    assert_eq!(title, "GATE奇幻自衛隊");
+    assert!(!chapters.is_empty(), "Should find chapters via __VIEWSTATE fallback");
+    for (name, href) in &chapters {
+        assert!(!name.is_empty());
+        assert!(href.starts_with("/comic/10528/"));
+    }
+}
+
+#[test]
 fn test_chapter_parsing_from_real_html() {
     let html = load_test_html("comic_40811_chapter_1.html");
     let chapter = Comic::parse_chapter_html(&html).expect("Failed to parse chapter HTML");
