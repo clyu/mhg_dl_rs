@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Build
       run: cargo build --verbose --release --target ${{ matrix.target }} --locked
@@ -47,7 +47,7 @@ jobs:
         echo "BIN_NAME=$BIN_NAME" >> $GITHUB_ENV
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: ${{ env.BIN_NAME }}
         path: ${{ env.BIN_NAME }}
@@ -59,7 +59,7 @@ jobs:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
@@ -73,7 +73,7 @@ jobs:
           gh api --method DELETE /repos/${{ github.repository }}/git/refs/tags/latest || true
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3.0.1
         with:
           tag_name: latest
           name: Latest Build
