@@ -8,7 +8,7 @@ To use the program, follow the command-line interface below:
 
 ```
 USAGE:
-    mhg_dl_rs.exe [OPTIONS] <URL>
+    mhg_dl_rs [OPTIONS] [URL]
 
 ARGS:
     <URL>    Manhuagui URL or numeric ID
@@ -17,6 +17,7 @@ OPTIONS:
     -d, --delay-ms <DELAY_MS>        Delay between pages in milliseconds [default: 1000]
     -h, --help                       Print help information
     -o, --output-dir <OUTPUT_DIR>    Output directory [default: Downloads]
+    -s, --search <SEARCH>            Search keyword for comics
     -t, --tunnel <TUNNEL>            Tunnel line: 0=i,1=eu,2=us [default: 0]
     -V, --version                    Print version information
 ```
