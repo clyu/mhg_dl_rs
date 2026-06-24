@@ -135,13 +135,15 @@ fn test_comic_metadata_extraction_from_real_html() {
 
     // Verify chapters
     assert!(chapters.len() > 0, "Should find at least one chapter");
-    // After reversal in parse_comic_html, the order is: volumes → omake → main episodes (reversed)
-    assert_eq!(chapters[0].0, "第01卷");
+    // After grouped extraction and sorting, the order is:單話(第01話...) -> 單行本(...) -> 番外篇(...)
+    // The first chapter should be "第01話"
+    assert_eq!(chapters[0].0, "第01話");
     assert!(chapters[0].1.contains("/comic/40811/"));
 
-    for (i, (name, href)) in chapters.iter().enumerate() {
+    for (i, (name, href, tag)) in chapters.iter().enumerate() {
         assert!(!name.is_empty(), "Chapter {} name should not be empty", i);
         assert!(!href.is_empty(), "Chapter {} href should not be empty", i);
+        assert!(!tag.is_empty(), "Chapter {} tag should not be empty", i);
         assert!(href.starts_with("/comic/40811/"), "Chapter {} href should be valid path", i);
     }
 }
@@ -154,10 +156,17 @@ fn test_comic_metadata_extraction_adult_gated() {
 
     assert_eq!(title, "GATE奇幻自衛隊");
     assert!(!chapters.is_empty(), "Should find chapters via __VIEWSTATE fallback");
-    for (name, href) in &chapters {
+    for (name, href, tag) in &chapters {
         assert!(!name.is_empty());
+        assert!(!tag.is_empty());
         assert!(href.starts_with("/comic/10528/"));
     }
+
+    // Verify that at least one chapter has a real tag (not the generic "Chapters" fallback)
+    assert!(
+        chapters.iter().any(|(_, _, tag)| tag != "Chapters"),
+        "At least one chapter group should have a real tag extracted from h4, not the fallback"
+    );
 }
 
 #[test]

@@ -64,9 +64,9 @@ fn sel_title() -> &'static Selector {
     SEL.get_or_init(|| Selector::parse(".book-title h1").unwrap())
 }
 
-fn sel_chap() -> &'static Selector {
+fn sel_chap_inner() -> &'static Selector {
     static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse(".chapter-list ul a").unwrap())
+    SEL.get_or_init(|| Selector::parse("ul a").unwrap())
 }
 
 fn sel_pager_links() -> &'static Selector {
@@ -155,7 +155,7 @@ struct Comic {
     tunnel: String,
     delay: Duration,
     title: String,
-    chapters: Vec<(String, String)>,
+    chapters: Vec<(String, String, String)>,
     output_dir: String,
 }
 
@@ -298,9 +298,10 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
     Ok((results, next_page))
 }
 
-fn chapters_from_elements<'a>(
+fn chapters_from_elements_with_tag<'a>(
     elements: impl Iterator<Item = scraper::ElementRef<'a>>,
-) -> Result<Vec<(String, String)>> {
+    tag: &str,
+) -> Result<Vec<(String, String, String)>> {
     let elements: Vec<_> = elements.collect();
     let mut chapters = Vec::new();
     for element in elements.into_iter().rev() {
@@ -314,8 +315,42 @@ fn chapters_from_elements<'a>(
             .attr("href")
             .ok_or_else(|| AppError::ContentParsing("Chapter href attribute not found".to_string()))?
             .to_string();
-        chapters.push((name, href));
+        chapters.push((name, href, tag.to_string()));
     }
+    Ok(chapters)
+}
+
+fn extract_chapters_with_groups(document: &Html) -> Result<Vec<(String, String, String)>> {
+    let h4_scoped = Selector::parse(".chapter h4").unwrap();
+    let h4_bare = Selector::parse("h4").unwrap();
+    let list_sel = Selector::parse(".chapter-list").unwrap();
+
+    let headers: Vec<String> = {
+        let scoped: Vec<_> = document.select(&h4_scoped).collect();
+        let sel = if scoped.is_empty() { &h4_bare } else { &h4_scoped };
+        document
+            .select(sel)
+            .map(|h| h.text().collect::<String>().trim().to_string())
+            .collect()
+    };
+
+    let lists: Vec<scraper::ElementRef> = document.select(&list_sel).collect();
+
+    let mut chapters = Vec::new();
+
+    if !lists.is_empty() {
+        let mut headers = headers;
+        while headers.len() < lists.len() {
+            headers.push("Chapters".to_string());
+        }
+
+        for (i, list_elem) in lists.iter().enumerate() {
+            let tag = &headers[i];
+            let list_chaps = chapters_from_elements_with_tag(list_elem.select(sel_chap_inner()), tag)?;
+            chapters.extend(list_chaps);
+        }
+    }
+
     Ok(chapters)
 }
 
@@ -353,7 +388,7 @@ impl Comic {
         Ok(())
     }
 
-    fn parse_comic_html(html: &str) -> Result<(String, Vec<(String, String)>)> {
+    fn parse_comic_html(html: &str) -> Result<(String, Vec<(String, String, String)>)> {
         let document = Html::parse_document(html);
         let title = document
             .select(sel_title())
@@ -361,7 +396,7 @@ impl Comic {
             .map(|e| e.text().collect::<String>())
             .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
 
-        let chapters = chapters_from_elements(document.select(sel_chap()))?;
+        let chapters = extract_chapters_with_groups(&document)?;
         if !chapters.is_empty() {
             return Ok((title, chapters));
         }
@@ -377,7 +412,7 @@ impl Comic {
                     "Failed to decode __VIEWSTATE".to_string(),
                 ))?;
             let inner = Html::parse_fragment(&decoded);
-            let chapters = chapters_from_elements(inner.select(sel_chap()))?;
+            let chapters = extract_chapters_with_groups(&inner)?;
             if !chapters.is_empty() {
                 return Ok((title, chapters));
             }
@@ -499,7 +534,7 @@ impl Comic {
     }
 
     fn download_chapter(&self, index: usize) -> Result<bool> {
-        let (name, href) = &self.chapters[index];
+        let (name, href, _) = &self.chapters[index];
         let book_safe = re_illegal_chars().replace_all(&self.title, "_");
         let chap_safe = re_illegal_chars().replace_all(name, "_");
         let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
@@ -637,8 +672,13 @@ fn main() -> Result<()> {
         args.output_dir,
     )?;
     println!("Title: {}", comic.title);
-    for (i, (name, _)) in comic.chapters.iter().enumerate() {
-        println!("{}: {}", i + 1, name);
+    let mut last_tag = String::new();
+    for (i, (name, _, tag)) in comic.chapters.iter().enumerate() {
+        if tag != &last_tag {
+            println!("{}:", tag);
+            last_tag = tag.clone();
+        }
+        println!("  {}: {}", i + 1, name);
     }
 
     let mut stdin = io::stdin().lock();
