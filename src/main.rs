@@ -66,7 +66,12 @@ fn sel_title() -> &'static Selector {
 
 fn sel_chap_inner() -> &'static Selector {
     static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse("ul a").unwrap())
+    SEL.get_or_init(|| Selector::parse("a").unwrap())
+}
+
+fn sel_ul() -> &'static Selector {
+    static SEL: OnceLock<Selector> = OnceLock::new();
+    SEL.get_or_init(|| Selector::parse("ul").unwrap())
 }
 
 fn sel_pager_links() -> &'static Selector {
@@ -346,8 +351,10 @@ fn extract_chapters_with_groups(document: &Html) -> Result<Vec<(String, String, 
 
         for (i, list_elem) in lists.iter().enumerate() {
             let tag = &headers[i];
-            let list_chaps = chapters_from_elements_with_tag(list_elem.select(sel_chap_inner()), tag)?;
-            chapters.extend(list_chaps);
+            for ul_elem in list_elem.select(sel_ul()) {
+                let ul_chaps = chapters_from_elements_with_tag(ul_elem.select(sel_chap_inner()), tag)?;
+                chapters.extend(ul_chaps);
+            }
         }
     }
 

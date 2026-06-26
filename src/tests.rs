@@ -779,3 +779,30 @@ fn test_parse_search_results_last_page() {
     assert_eq!(results.len(), 8); // 28 total - 10 (page 1) - 10 (page 2) = 8
     assert!(next_page.is_none());
 }
+
+#[test]
+fn test_multiple_ul_chapter_ordering() {
+    // Test case for comic_1128.html: 單行本 section has two <ul> elements
+    // ul[0]: volumes 1-22 (reversed: 22→01 in DOM)
+    // ul[1]: volumes 23-112 (reversed: 112→23 in DOM)
+    // After fix, should be ordered: 01→22, 23→112 (continuous 01→112)
+    let html = load_test_html("comic_1128.html");
+    let (title, chapters) = Comic::parse_comic_html(&html).expect("Failed to parse comic HTML");
+
+    assert_eq!(title, "ONE PIECE航海王");
+
+    // Find chapters with tag "單行本"
+    let tankoubon_chapters: Vec<_> = chapters
+        .iter()
+        .filter(|(_, _, tag)| tag == "單行本")
+        .collect();
+
+    // Extract just the chapter names
+    let names: Vec<&str> = tankoubon_chapters.iter().map(|(name, _, _)| name.as_str()).collect();
+
+    // Verify sequential ordering: 01→112
+    for i in 0..tankoubon_chapters.len() {
+        let expected = format!("第{:02}卷", i + 1);
+        assert_eq!(names[i], expected, "Position {} should be {}, got {}", i, expected, names[i]);
+    }
+}
