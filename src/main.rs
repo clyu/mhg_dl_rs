@@ -172,9 +172,9 @@ fn unpack_packed(
 ) -> Result<ChapterStruct> {
     fn encode(mut value: usize, base: usize) -> Result<String> {
         const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        if base > DIGITS.len() {
+        if base < 2 || base > DIGITS.len() {
             return Err(AppError::ContentParsing(format!(
-                "Base {} exceeds supported alphabet size (max {})",
+                "Base {} out of supported range (2..={})",
                 base,
                 DIGITS.len()
             )));
@@ -458,7 +458,7 @@ impl Comic {
     }
 
     fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
-        let width = (chap.files.len() as f64).log10().floor() as usize + 1;
+        let width = (chap.files.len().saturating_sub(1) as f64).log10().floor().max(0.0) as usize + 1;
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let file_safe = re_illegal_chars().replace_all(file, "_");

@@ -70,7 +70,24 @@ fn test_unpack_packed_invalid_base() {
     let result = unpack_packed(frame, a, c, data);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("exceeds supported alphabet size"), "Error message was: {}", err_msg);
+    assert!(err_msg.contains("out of supported range"), "Error message was: {}", err_msg);
+}
+
+#[test]
+fn test_unpack_packed_base_too_small() {
+    let frame = "{}";
+    let c = 1; // Must be > 0 to trigger the loop that calls encode()
+    let data = vec!["dummy".to_string()];
+
+    // Base 0 would panic via divide-by-zero without the lower-bound guard.
+    let result = unpack_packed(frame, 0, c, data.clone());
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("out of supported range"));
+
+    // Base 1 would hang forever (value /= 1 never terminates) without the guard.
+    let result = unpack_packed(frame, 1, c, data);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("out of supported range"));
 }
 
 #[test]
