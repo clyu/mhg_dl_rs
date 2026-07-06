@@ -266,6 +266,7 @@ fn wait_for_space() -> bool {
                 kind: KeyEventKind::Press,
                 ..
             })) => break false,
+            Err(_) => break false,
             _ => {}
         }
     };
