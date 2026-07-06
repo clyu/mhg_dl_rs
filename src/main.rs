@@ -16,7 +16,7 @@ use std::{
     fs,
     io::{self, Write},
     num::ParseIntError,
-    path::PathBuf,
+    path::{Path, PathBuf},
     thread,
     time::Duration,
 };
@@ -438,7 +438,7 @@ impl Comic {
         unpack_packed(frame, a, c, data)
     }
 
-    fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
+    fn download_images(&self, chap: &ChapterStruct, chapter_dir: &Path, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
         let width = chap.files.len().saturating_sub(1).to_string().len();
         let e_str = match &chap.sl.e {
             serde_json::Value::String(s) => s.clone(),
@@ -494,8 +494,8 @@ impl Comic {
         Ok(())
     }
 
-    fn compress_chapter(chapter_dir: &PathBuf, zip_path: &PathBuf) -> Result<()> {
-        let mut zip_part = zip_path.clone().into_os_string();
+    fn compress_chapter(chapter_dir: &Path, zip_path: &Path) -> Result<()> {
+        let mut zip_part = zip_path.as_os_str().to_owned();
         zip_part.push(".part");
         let zip_part = PathBuf::from(zip_part);
         let zip_file = fs::File::create(&zip_part)?;
