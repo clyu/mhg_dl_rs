@@ -24,6 +24,8 @@ use thiserror::Error;
 use zip::{result::ZipError, write::FileOptions, CompressionMethod, ZipWriter};
 use std::sync::LazyLock;
 
+const HOST: &str = "https://tw.manhuagui.com";
+
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap()
 });
@@ -202,7 +204,6 @@ fn build_client() -> Result<Client> {
         ("accept-language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,zh-CN;q=0.6"),
         ("cache-control", "no-cache"),
         ("pragma", "no-cache"),
-        ("referer", "https://tw.manhuagui.com/"),
         ("sec-fetch-dest", "document"),
         ("sec-fetch-mode", "navigate"),
         ("sec-fetch-site", "same-origin"),
@@ -210,6 +211,7 @@ fn build_client() -> Result<Client> {
     ] {
         headers.insert(*key, value.parse()?);
     }
+    headers.insert("referer", format!("{}/", HOST).parse()?);
     Ok(Client::builder().default_headers(headers).build()?)
 }
 
@@ -333,7 +335,7 @@ impl Comic {
         delay_ms: u64,
         output_dir: String,
     ) -> Result<Self> {
-        let host = String::from("https://tw.manhuagui.com");
+        let host = String::from(HOST);
         let channels = ["i", "eu", "us"];
         let tn = channels.get(tunnel).unwrap_or(&"i");
         let tunnel_url = format!("https://{}.hamreus.com", tn);
@@ -608,7 +610,7 @@ fn main() -> Result<()> {
     let client = build_client()?;
 
     let id = if let Some(ref search_keyword) = args.search {
-        let first_url = format!("https://tw.manhuagui.com/s/{}.html", urlencoding::encode(search_keyword));
+        let first_url = format!("{}/s/{}.html", HOST, urlencoding::encode(search_keyword));
         let mut all_results: Vec<SearchResult> = Vec::new();
         let mut next_url: Option<String> = Some(first_url);
 
@@ -627,7 +629,7 @@ fn main() -> Result<()> {
                 io::stdout().flush()?;
                 if wait_for_space() {
                     println!();
-                    Some(format!("https://tw.manhuagui.com{}", path))
+                    Some(format!("{}{}", HOST, path))
                 } else {
                     println!();
                     None
