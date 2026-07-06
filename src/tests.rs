@@ -235,6 +235,26 @@ fn test_prompt_for_chapters_dedup_and_sort() {
 }
 
 #[test]
+fn test_prompt_for_chapters_eof() {
+    // stdin closed immediately: must error out instead of looping forever
+    let mut input = std::io::Cursor::new("");
+    assert!(prompt_for_chapters(&mut input, 10).is_err());
+}
+
+#[test]
+fn test_prompt_for_chapters_eof_after_invalid_input() {
+    // Invalid input followed by EOF: must error out after the retry
+    let mut input = std::io::Cursor::new("999\n");
+    assert!(prompt_for_chapters(&mut input, 10).is_err());
+}
+
+#[test]
+fn test_prompt_for_comic_selection_eof() {
+    let mut input = std::io::Cursor::new("");
+    assert!(prompt_for_comic_selection(&mut input, 5).is_err());
+}
+
+#[test]
 fn test_re_word() {
     let re = re_word();
 

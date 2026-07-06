@@ -582,7 +582,12 @@ fn prompt_for_comic_selection<R: io::BufRead>(reader: &mut R, comics_count: usiz
         print!("Select a comic (enter number): ");
         io::stdout().flush()?;
         let mut input = String::new();
-        reader.read_line(&mut input)?;
+        if reader.read_line(&mut input)? == 0 {
+            return Err(AppError::Io(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "stdin closed while waiting for comic selection",
+            )));
+        }
         match input.trim().parse::<usize>() {
             Ok(n) if n >= 1 && n <= comics_count => {
                 return Ok(n - 1);
@@ -600,7 +605,12 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
         print!("Select chapters (e.g. 1-3,5): ");
         io::stdout().flush()?;
         let mut input = String::new();
-        reader.read_line(&mut input)?;
+        if reader.read_line(&mut input)? == 0 {
+            return Err(AppError::Io(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "stdin closed while waiting for chapter selection",
+            )));
+        }
         match range_parser::parse(input.trim()) {
             Ok(parsed_ranges) => {
                 // The user enters 1-based chapter numbers. We convert them to 0-based indices.
