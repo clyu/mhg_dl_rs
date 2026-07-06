@@ -415,6 +415,45 @@ fn test_compress_chapter() {
 }
 
 #[test]
+fn test_compress_chapter_atomic_and_excludes_part_files() {
+    use std::fs;
+    use std::io::Read;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let test_dir = temp_dir.path();
+
+    let chapter_dir = test_dir.join("chapter_test");
+    fs::create_dir_all(&chapter_dir).unwrap();
+
+    fs::write(chapter_dir.join("01_page.jpg"), "fake image data").unwrap();
+    // A stale temp file from an interrupted download must not end up in the cbz
+    fs::write(chapter_dir.join("02_page.jpg.part"), "partial data").unwrap();
+
+    let zip_path = test_dir.join("chapter_test.cbz");
+
+    Comic::compress_chapter(&chapter_dir, &zip_path).unwrap();
+
+    // The intermediate zip temp file must be renamed away
+    assert!(zip_path.exists());
+    assert!(!test_dir.join("chapter_test.cbz.part").exists());
+
+    let mut archive = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
+    let names: Vec<String> = (0..archive.len())
+        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert_eq!(names, vec!["01_page.jpg"]);
+
+    let mut content = String::new();
+    archive
+        .by_name("01_page.jpg")
+        .unwrap()
+        .read_to_string(&mut content)
+        .unwrap();
+    assert_eq!(content, "fake image data");
+}
+
+#[test]
 fn test_json_regex_with_complex_data() {
     // Test JSON extraction from unpacked JavaScript with various data types
     // Note: The regex uses .* which doesn't match newlines by default in most regex engines

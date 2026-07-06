@@ -515,14 +515,17 @@ impl Comic {
     }
 
     fn compress_chapter(chapter_dir: &PathBuf, zip_path: &PathBuf) -> Result<()> {
-        let zip_file = fs::File::create(&zip_path)?;
+        let mut zip_part = zip_path.clone().into_os_string();
+        zip_part.push(".part");
+        let zip_part = PathBuf::from(zip_part);
+        let zip_file = fs::File::create(&zip_part)?;
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
 
         let mut files: Vec<PathBuf> = fs::read_dir(&chapter_dir)?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.is_file())
+            .filter(|path| path.is_file() && path.extension().map_or(true, |ext| ext != "part"))
             .collect();
 
         files.sort();
@@ -536,6 +539,7 @@ impl Comic {
         }
 
         zip.finish()?;
+        fs::rename(&zip_part, zip_path)?;
         fs::remove_dir_all(&chapter_dir)?;
         Ok(())
     }
