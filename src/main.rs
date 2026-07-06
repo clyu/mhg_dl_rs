@@ -447,10 +447,9 @@ impl Comic {
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let file_safe = RE_ILLEGAL_CHARS.replace_all(file, "_");
-            let dst = chapter_dir.join(format!("{:0width$}_{}", i, file_safe, width = width));
-            let mut dst_part = dst.clone().into_os_string();
-            dst_part.push(".part");
-            let dst_part = PathBuf::from(dst_part);
+            let fname = format!("{:0width$}_{}", i, file_safe, width = width);
+            let dst = chapter_dir.join(&fname);
+            let dst_part = chapter_dir.join(format!("{fname}.part"));
 
             if dst.exists() {
                 bar.inc(1);
