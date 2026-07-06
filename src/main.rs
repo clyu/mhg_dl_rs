@@ -22,67 +22,34 @@ use std::{
 };
 use thiserror::Error;
 use zip::{result::ZipError, write::FileOptions, CompressionMethod, ZipWriter};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-fn re_id() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap())
-}
+static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap()
+});
+static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\w+\b").unwrap());
+static RE_JSON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\((\{.*?\})\)").unwrap());
+static RE_CHAPTER_DATA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'").unwrap());
+static RE_ILLEGAL_CHARS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r##"[\\/:*?"<>|]"##).unwrap());
 
-fn re_word() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\b\w+\b").unwrap())
-}
-
-fn re_json() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\((\{.*?\})\)").unwrap())
-}
-
-fn re_chapter_data() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'").unwrap())
-}
-
-fn re_illegal_chars() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r##"[\\/:*?"<>|]"##).unwrap())
-}
-
-fn sel_comics() -> &'static Selector {
-    static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse("div.book-result ul li.cf").unwrap())
-}
-
-fn sel_link() -> &'static Selector {
-    static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse("a.bcover").unwrap())
-}
-
-fn sel_title() -> &'static Selector {
-    static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse(".book-title h1").unwrap())
-}
-
-fn sel_chap_inner() -> &'static Selector {
-    static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse("a").unwrap())
-}
-
-fn sel_ul() -> &'static Selector {
-    static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse("ul").unwrap())
-}
-
-fn sel_pager_links() -> &'static Selector {
-    static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse("div.pager a").unwrap())
-}
-
-fn sel_viewstate() -> &'static Selector {
-    static SEL: OnceLock<Selector> = OnceLock::new();
-    SEL.get_or_init(|| Selector::parse("input#__VIEWSTATE").unwrap())
-}
+static SEL_COMICS: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("div.book-result ul li.cf").unwrap());
+static SEL_LINK: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a.bcover").unwrap());
+static SEL_TITLE: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(".book-title h1").unwrap());
+static SEL_CHAP_INNER: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a").unwrap());
+static SEL_UL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("ul").unwrap());
+static SEL_PAGER_LINKS: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("div.pager a").unwrap());
+static SEL_VIEWSTATE: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("input#__VIEWSTATE").unwrap());
+static SEL_H4_SCOPED: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(".chapter h4").unwrap());
+static SEL_H4_BARE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("h4").unwrap());
+static SEL_CHAPTER_LIST: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(".chapter-list").unwrap());
 
 #[derive(Error, Debug)]
 enum AppError {
@@ -130,7 +97,7 @@ struct Args {
 }
 
 fn parse_id(s: &str) -> Option<usize> {
-    re_id().captures(s)
+    RE_ID.captures(s)
         .and_then(|c| c.get(1))
         .and_then(|m| m.as_str().parse().ok())
 }
@@ -207,13 +174,13 @@ fn unpack_packed(
         };
         dmap.insert(key, val);
     }
-    let js = re_word()
+    let js = RE_WORD
         .replace_all(frame, |caps: &regex::Captures| {
             let key = caps.get(0).unwrap().as_str();
             dmap.get(key).cloned().unwrap_or_else(|| key.to_string())
         })
         .to_string();
-    let caps = re_json().captures(&js).ok_or_else(|| {
+    let caps = RE_JSON.captures(&js).ok_or_else(|| {
         AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
     })?;
     let json_str = caps
@@ -279,8 +246,8 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
 
     let mut results = Vec::new();
 
-    for li in document.select(sel_comics()) {
-        if let Some(link) = li.select(sel_link()).next() {
+    for li in document.select(&SEL_COMICS) {
+        if let Some(link) = li.select(&SEL_LINK).next() {
             if let Some(href) = link.value().attr("href") {
                 if let Some(id_str) = href.split('/').find(|s| !s.is_empty() && s.chars().all(|c| c.is_numeric())) {
                     if let Ok(comic_id) = id_str.parse::<usize>() {
@@ -296,7 +263,7 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
         }
     }
 
-    let next_page = document.select(sel_pager_links())
+    let next_page = document.select(&SEL_PAGER_LINKS)
         .find(|a| a.text().collect::<String>().trim() == "下一頁")
         .and_then(|a| a.value().attr("href"))
         .map(|s| s.to_string());
@@ -327,20 +294,16 @@ fn chapters_from_elements_with_tag<'a>(
 }
 
 fn extract_chapters_with_groups(document: &Html) -> Result<Vec<(String, String, String)>> {
-    let h4_scoped = Selector::parse(".chapter h4").unwrap();
-    let h4_bare = Selector::parse("h4").unwrap();
-    let list_sel = Selector::parse(".chapter-list").unwrap();
-
     let headers: Vec<String> = {
-        let scoped: Vec<_> = document.select(&h4_scoped).collect();
-        let sel = if scoped.is_empty() { &h4_bare } else { &h4_scoped };
+        let scoped: Vec<_> = document.select(&SEL_H4_SCOPED).collect();
+        let sel = if scoped.is_empty() { &SEL_H4_BARE } else { &SEL_H4_SCOPED };
         document
             .select(sel)
             .map(|h| h.text().collect::<String>().trim().to_string())
             .collect()
     };
 
-    let lists: Vec<scraper::ElementRef> = document.select(&list_sel).collect();
+    let lists: Vec<scraper::ElementRef> = document.select(&SEL_CHAPTER_LIST).collect();
 
     let mut chapters = Vec::new();
 
@@ -352,8 +315,8 @@ fn extract_chapters_with_groups(document: &Html) -> Result<Vec<(String, String, 
 
         for (i, list_elem) in lists.iter().enumerate() {
             let tag = &headers[i];
-            for ul_elem in list_elem.select(sel_ul()) {
-                let ul_chaps = chapters_from_elements_with_tag(ul_elem.select(sel_chap_inner()), tag)?;
+            for ul_elem in list_elem.select(&SEL_UL) {
+                let ul_chaps = chapters_from_elements_with_tag(ul_elem.select(&SEL_CHAP_INNER), tag)?;
                 chapters.extend(ul_chaps);
             }
         }
@@ -399,7 +362,7 @@ impl Comic {
     fn parse_comic_html(html: &str) -> Result<(String, Vec<(String, String, String)>)> {
         let document = Html::parse_document(html);
         let title = document
-            .select(sel_title())
+            .select(&SEL_TITLE)
             .next()
             .map(|e| e.text().collect::<String>())
             .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
@@ -410,7 +373,7 @@ impl Comic {
         }
 
         if let Some(vs_val) = document
-            .select(sel_viewstate())
+            .select(&SEL_VIEWSTATE)
             .next()
             .and_then(|e| e.value().attr("value"))
         {
@@ -438,7 +401,7 @@ impl Comic {
     }
 
     fn parse_chapter_html(html: &str) -> Result<ChapterStruct> {
-        let caps = re_chapter_data()
+        let caps = RE_CHAPTER_DATA
             .captures(html)
             .ok_or_else(|| AppError::ContentParsing("Could not parse chapter data".to_string()))?;
 
@@ -464,7 +427,7 @@ impl Comic {
         let width = (chap.files.len().saturating_sub(1) as f64).log10().floor().max(0.0) as usize + 1;
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
-            let file_safe = re_illegal_chars().replace_all(file, "_");
+            let file_safe = RE_ILLEGAL_CHARS.replace_all(file, "_");
             let dst = chapter_dir.join(format!("{:0width$}_{}", i, file_safe, width = width));
             let mut dst_part = dst.clone().into_os_string();
             dst_part.push(".part");
@@ -549,8 +512,8 @@ impl Comic {
 
     fn download_chapter(&self, index: usize) -> Result<bool> {
         let (name, href, _) = &self.chapters[index];
-        let book_safe = re_illegal_chars().replace_all(&self.title, "_");
-        let chap_safe = re_illegal_chars().replace_all(name, "_");
+        let book_safe = RE_ILLEGAL_CHARS.replace_all(&self.title, "_");
+        let chap_safe = RE_ILLEGAL_CHARS.replace_all(name, "_");
         let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
         let zip_path = book_dir.join(format!("{}_{}.cbz", book_safe, chap_safe));
         if zip_path.exists() {

@@ -32,7 +32,7 @@ fn test_parse_id() {
 #[test]
 fn test_unpack_packed() {
     // A simplified example of "packed" JavaScript code and its dictionary.
-    // Removed spaces between '(' and '{' to match the re_json regex: .*\((\{.*\})\).*
+    // Removed spaces between '(' and '{' to match the RE_JSON regex: .*\((\{.*\})\).*
     let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[\"01.jpg\"]})";
     let a = 10;
     let c = 5;
@@ -270,7 +270,7 @@ fn test_prompt_for_comic_selection_eof() {
 
 #[test]
 fn test_re_word() {
-    let re = re_word();
+    let re = &*RE_WORD;
 
     // Word boundary regex \b\w+\b matches word characters between word boundaries
     // Note: 123 in the middle of alphanumeric chars is part of the same word
@@ -292,7 +292,7 @@ fn test_re_word() {
 
 #[test]
 fn test_re_json() {
-    let re = re_json();
+    let re = &*RE_JSON;
 
     // Standard format with function call
     let text = "someFunc({\"key\":\"value\"})";
@@ -312,7 +312,7 @@ fn test_re_json() {
 
 #[test]
 fn test_re_chapter_data() {
-    let re = re_chapter_data();
+    let re = &*RE_CHAPTER_DATA;
 
     // Standard packed format (no spaces)
     let text = "xxx}('packed_frame_data',10,5,'base64data==')xxx";
@@ -331,7 +331,7 @@ fn test_re_chapter_data() {
 
 #[test]
 fn test_re_illegal_chars() {
-    let re = re_illegal_chars();
+    let re = &*RE_ILLEGAL_CHARS;
 
     // Test forward slash
     let input = "file/name";
@@ -381,7 +381,7 @@ fn test_re_illegal_chars() {
 
 #[test]
 fn test_path_safety_with_illegal_chars() {
-    let re = re_illegal_chars();
+    let re = &*RE_ILLEGAL_CHARS;
 
     // Test comic title with forward slashes
     let title = "Path/To/Comic";
@@ -492,7 +492,7 @@ fn test_json_regex_with_complex_data() {
     // Test JSON extraction from unpacked JavaScript with various data types
     // Note: The regex uses .* which doesn't match newlines by default in most regex engines
     // So we need to provide single-line JSON
-    let re = re_json();
+    let re = &*RE_JSON;
 
     // Test with nested objects on a single line
     let js_code = r#"SMH.imgData({"sl": {"e": "12345", "m": "abc"}, "path": "/img/path/", "files": ["01.jpg", "02.jpg"]})"#;
@@ -530,7 +530,7 @@ fn test_prompt_for_chapters_overlapping_ranges() {
 #[test]
 fn test_illegal_chars_unicode_handling() {
     // Test that Unicode characters are preserved (not replaced)
-    let re = re_illegal_chars();
+    let re = &*RE_ILLEGAL_CHARS;
 
     let test_cases = vec![
         ("漫畫標題", "漫畫標題"),     // Chinese characters preserved
@@ -548,7 +548,7 @@ fn test_illegal_chars_unicode_handling() {
 #[test]
 fn test_illegal_chars_consecutive_illegal() {
     // Test multiple consecutive illegal characters
-    let re = re_illegal_chars();
+    let re = &*RE_ILLEGAL_CHARS;
 
     let input = "file<<<>>>name";
     let output = re.replace_all(input, "_").to_string();
@@ -564,7 +564,7 @@ fn test_illegal_chars_windows_forbidden() {
     // Test characters that the regex actually matches
     // Note: The regex pattern is [\/:*?"<>|] which matches:
     // /, :, *, ?, ", <, >, | (but NOT \)
-    let re = re_illegal_chars();
+    let re = &*RE_ILLEGAL_CHARS;
     let forbidden_by_regex = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
     for ch in &forbidden_by_regex {
@@ -581,7 +581,7 @@ fn test_illegal_chars_windows_forbidden() {
 #[test]
 fn test_illegal_chars_valid_characters_preserved() {
     // Test that valid characters are NOT replaced
-    let re = re_illegal_chars();
+    let re = &*RE_ILLEGAL_CHARS;
 
     let test_cases = vec![
         "file-name",      // Hyphen valid
@@ -676,7 +676,7 @@ fn test_compress_chapter_file_ordering() {
 #[test]
 fn test_directory_traversal_prevention() {
     // Test that path sanitization prevents directory traversal attempts
-    let re = re_illegal_chars();
+    let re = &*RE_ILLEGAL_CHARS;
 
     let dangerous_paths = vec![
         "../../../etc/passwd",
