@@ -425,6 +425,11 @@ impl Comic {
 
     fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
         let width = chap.files.len().saturating_sub(1).to_string().len();
+        let e_str = match &chap.sl.e {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Number(n) => n.to_string(),
+            _ => return Err(AppError::ContentParsing("sl.e is not a string or number".to_string())),
+        };
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let file_safe = RE_ILLEGAL_CHARS.replace_all(file, "_");
@@ -437,11 +442,6 @@ impl Comic {
                 bar.inc(1);
                 continue;
             }
-            let e_str = match &chap.sl.e {
-                serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Number(n) => n.to_string(),
-                _ => return Err(AppError::ContentParsing("sl.e is not a string or number".to_string())),
-            };
             let mut resp = self
                 .client
                 .get(&url)
