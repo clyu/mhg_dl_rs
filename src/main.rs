@@ -283,27 +283,28 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
 
 fn chapters_from_elements_with_tag<'a>(
     elements: impl Iterator<Item = scraper::ElementRef<'a>>,
-    tag: &str,
+    group: &str,
 ) -> Result<Vec<Chapter>> {
-    let elements: Vec<_> = elements.collect();
-    let mut chapters = Vec::new();
-    for element in elements.into_iter().rev() {
-        let name = element
-            .value()
-            .attr("title")
-            .ok_or_else(|| AppError::ContentParsing("Chapter title attribute not found".to_string()))?
-            .to_string();
-        let href = element
-            .value()
-            .attr("href")
-            .ok_or_else(|| AppError::ContentParsing("Chapter href attribute not found".to_string()))?
-            .to_string();
-        chapters.push(Chapter {
-            name,
-            href,
-            group: tag.to_string(),
-        });
-    }
+    let mut chapters: Vec<Chapter> = elements
+        .map(|element| {
+            let attr = |key: &str| {
+                element
+                    .value()
+                    .attr(key)
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        AppError::ContentParsing(format!("Chapter {} attribute not found", key))
+                    })
+            };
+            Ok(Chapter {
+                name: attr("title")?,
+                href: attr("href")?,
+                group: group.to_string(),
+            })
+        })
+        .collect::<Result<_>>()?;
+    // The site lists chapters newest-first; reverse into reading order
+    chapters.reverse();
     Ok(chapters)
 }
 
