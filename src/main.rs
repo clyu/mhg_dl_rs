@@ -123,13 +123,21 @@ struct SearchResult {
     comic_id: usize,
 }
 
+#[derive(Debug, Clone)]
+struct Chapter {
+    name: String,
+    href: String,
+    /// Section heading the chapter belongs to, e.g. "單行本" (volumes) or "單話" (single chapters)
+    group: String,
+}
+
 struct Comic {
     client: Client,
     host: String,
     tunnel: String,
     delay: Duration,
     title: String,
-    chapters: Vec<(String, String, String)>,
+    chapters: Vec<Chapter>,
     output_dir: String,
 }
 
@@ -276,7 +284,7 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
 fn chapters_from_elements_with_tag<'a>(
     elements: impl Iterator<Item = scraper::ElementRef<'a>>,
     tag: &str,
-) -> Result<Vec<(String, String, String)>> {
+) -> Result<Vec<Chapter>> {
     let elements: Vec<_> = elements.collect();
     let mut chapters = Vec::new();
     for element in elements.into_iter().rev() {
@@ -290,12 +298,16 @@ fn chapters_from_elements_with_tag<'a>(
             .attr("href")
             .ok_or_else(|| AppError::ContentParsing("Chapter href attribute not found".to_string()))?
             .to_string();
-        chapters.push((name, href, tag.to_string()));
+        chapters.push(Chapter {
+            name,
+            href,
+            group: tag.to_string(),
+        });
     }
     Ok(chapters)
 }
 
-fn extract_chapters_with_groups(document: &Html) -> Result<Vec<(String, String, String)>> {
+fn extract_chapters_with_groups(document: &Html) -> Result<Vec<Chapter>> {
     let headers: Vec<String> = {
         let scoped: Vec<_> = document.select(&SEL_H4_SCOPED).collect();
         let sel = if scoped.is_empty() { &SEL_H4_BARE } else { &SEL_H4_SCOPED };
@@ -361,7 +373,7 @@ impl Comic {
         Ok(())
     }
 
-    fn parse_comic_html(html: &str) -> Result<(String, Vec<(String, String, String)>)> {
+    fn parse_comic_html(html: &str) -> Result<(String, Vec<Chapter>)> {
         let document = Html::parse_document(html);
         let title = document
             .select(&SEL_TITLE)
@@ -513,7 +525,7 @@ impl Comic {
     }
 
     fn download_chapter(&self, index: usize) -> Result<bool> {
-        let (name, href, _) = &self.chapters[index];
+        let Chapter { name, href, .. } = &self.chapters[index];
         let book_safe = RE_ILLEGAL_CHARS.replace_all(&self.title, "_");
         let chap_safe = RE_ILLEGAL_CHARS.replace_all(name, "_");
         let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
@@ -661,13 +673,13 @@ fn main() -> Result<()> {
         args.output_dir,
     )?;
     println!("Title: {}", comic.title);
-    let mut last_tag = String::new();
-    for (i, (name, _, tag)) in comic.chapters.iter().enumerate() {
-        if tag != &last_tag {
-            println!("{}:", tag);
-            last_tag = tag.clone();
+    let mut last_group = String::new();
+    for (i, chapter) in comic.chapters.iter().enumerate() {
+        if chapter.group != last_group {
+            println!("{}:", chapter.group);
+            last_group = chapter.group.clone();
         }
-        println!("  {}: {}", i + 1, name);
+        println!("  {}: {}", i + 1, chapter.name);
     }
 
     let mut stdin = io::stdin().lock();

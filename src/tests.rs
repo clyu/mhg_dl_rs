@@ -154,14 +154,14 @@ fn test_comic_metadata_extraction_from_real_html() {
     assert!(chapters.len() > 0, "Should find at least one chapter");
     // After grouped extraction and sorting, the order is:單話(第01話...) -> 單行本(...) -> 番外篇(...)
     // The first chapter should be "第01話"
-    assert_eq!(chapters[0].0, "第01話");
-    assert!(chapters[0].1.contains("/comic/40811/"));
+    assert_eq!(chapters[0].name, "第01話");
+    assert!(chapters[0].href.contains("/comic/40811/"));
 
-    for (i, (name, href, tag)) in chapters.iter().enumerate() {
-        assert!(!name.is_empty(), "Chapter {} name should not be empty", i);
-        assert!(!href.is_empty(), "Chapter {} href should not be empty", i);
-        assert!(!tag.is_empty(), "Chapter {} tag should not be empty", i);
-        assert!(href.starts_with("/comic/40811/"), "Chapter {} href should be valid path", i);
+    for (i, chapter) in chapters.iter().enumerate() {
+        assert!(!chapter.name.is_empty(), "Chapter {} name should not be empty", i);
+        assert!(!chapter.href.is_empty(), "Chapter {} href should not be empty", i);
+        assert!(!chapter.group.is_empty(), "Chapter {} group should not be empty", i);
+        assert!(chapter.href.starts_with("/comic/40811/"), "Chapter {} href should be valid path", i);
     }
 }
 
@@ -173,15 +173,15 @@ fn test_comic_metadata_extraction_adult_gated() {
 
     assert_eq!(title, "GATE奇幻自衛隊");
     assert!(!chapters.is_empty(), "Should find chapters via __VIEWSTATE fallback");
-    for (name, href, tag) in &chapters {
-        assert!(!name.is_empty());
-        assert!(!tag.is_empty());
-        assert!(href.starts_with("/comic/10528/"));
+    for chapter in &chapters {
+        assert!(!chapter.name.is_empty());
+        assert!(!chapter.group.is_empty());
+        assert!(chapter.href.starts_with("/comic/10528/"));
     }
 
-    // Verify that at least one chapter has a real tag (not the generic "Chapters" fallback)
+    // Verify that at least one chapter has a real group (not the generic "Chapters" fallback)
     assert!(
-        chapters.iter().any(|(_, _, tag)| tag != "Chapters"),
+        chapters.iter().any(|c| c.group != "Chapters"),
         "At least one chapter group should have a real tag extracted from h4, not the fallback"
     );
 }
@@ -884,11 +884,11 @@ fn test_multiple_ul_chapter_ordering() {
     // Find chapters with tag "單行本"
     let tankoubon_chapters: Vec<_> = chapters
         .iter()
-        .filter(|(_, _, tag)| tag == "單行本")
+        .filter(|c| c.group == "單行本")
         .collect();
 
     // Extract just the chapter names
-    let names: Vec<&str> = tankoubon_chapters.iter().map(|(name, _, _)| name.as_str()).collect();
+    let names: Vec<&str> = tankoubon_chapters.iter().map(|c| c.name.as_str()).collect();
 
     // Verify sequential ordering: 01→112
     for i in 0..tankoubon_chapters.len() {
