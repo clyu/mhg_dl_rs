@@ -162,7 +162,7 @@ fn unpack_packed(
         let mut res = String::new();
         while value > 0 {
             let rem = value % base;
-            res.insert(0, DIGITS.chars().nth(rem).unwrap());
+            res.insert(0, DIGITS.as_bytes()[rem] as char);
             value /= base;
         }
         Ok(res)
@@ -175,7 +175,7 @@ fn unpack_packed(
             data.len()
         )));
     }
-    for i in (0..c).rev() {
+    for i in 0..c {
         let key = encode(i, a)?;
         let val = if data[i].is_empty() {
             key.clone()
