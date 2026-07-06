@@ -187,6 +187,20 @@ fn test_comic_metadata_extraction_adult_gated() {
 }
 
 #[test]
+fn test_comic_metadata_extraction_no_chapters_is_error() {
+    // A page with a title but no chapter list (layout change, gated content
+    // without __VIEWSTATE, error page) must fail instead of returning an
+    // empty list that would trap the user in the chapter prompt loop.
+    let html = r#"
+        <html><body>
+            <div class="book-title"><h1>某漫畫</h1></div>
+            <p>本作品暫不提供觀看</p>
+        </body></html>
+    "#;
+    assert!(Comic::parse_comic_html(html).is_err());
+}
+
+#[test]
 fn test_chapter_parsing_from_real_html() {
     let html = load_test_html("comic_40811_chapter_1.html");
     let chapter = Comic::parse_chapter_html(&html).expect("Failed to parse chapter HTML");

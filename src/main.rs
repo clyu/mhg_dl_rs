@@ -425,7 +425,9 @@ impl Comic {
             }
         }
 
-        Ok((title, chapters))
+        Err(AppError::ContentParsing(
+            "No chapters found (page layout changed or content is gated)".to_string(),
+        ))
     }
 
     fn get_chapter(&self, href: &str) -> Result<ChapterStruct> {
