@@ -424,7 +424,7 @@ impl Comic {
     }
 
     fn download_images(&self, chap: &ChapterStruct, chapter_dir: &PathBuf, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
-        let width = (chap.files.len().saturating_sub(1) as f64).log10().floor().max(0.0) as usize + 1;
+        let width = chap.files.len().saturating_sub(1).to_string().len();
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let file_safe = RE_ILLEGAL_CHARS.replace_all(file, "_");
