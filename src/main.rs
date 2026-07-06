@@ -381,31 +381,31 @@ impl Comic {
             .map(|e| e.text().collect::<String>())
             .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
 
-        let chapters = extract_chapters_with_groups(&document)?;
-        if !chapters.is_empty() {
-            return Ok((title, chapters));
-        }
+        let mut chapters = extract_chapters_with_groups(&document)?;
 
-        if let Some(vs_val) = document
-            .select(&SEL_VIEWSTATE)
-            .next()
-            .and_then(|e| e.value().attr("value"))
-        {
-            let decoded = lz_string::Decoder::new()
-                .decode_base64(vs_val)
-                .map_err(|_| AppError::ContentParsing(
-                    "Failed to decode __VIEWSTATE".to_string(),
-                ))?;
-            let inner = Html::parse_fragment(&decoded);
-            let chapters = extract_chapters_with_groups(&inner)?;
-            if !chapters.is_empty() {
-                return Ok((title, chapters));
+        if chapters.is_empty() {
+            if let Some(vs_val) = document
+                .select(&SEL_VIEWSTATE)
+                .next()
+                .and_then(|e| e.value().attr("value"))
+            {
+                let decoded = lz_string::Decoder::new()
+                    .decode_base64(vs_val)
+                    .map_err(|_| AppError::ContentParsing(
+                        "Failed to decode __VIEWSTATE".to_string(),
+                    ))?;
+                let inner = Html::parse_fragment(&decoded);
+                chapters = extract_chapters_with_groups(&inner)?;
             }
         }
 
-        Err(AppError::ContentParsing(
-            "No chapters found (page layout changed or content is gated)".to_string(),
-        ))
+        if chapters.is_empty() {
+            return Err(AppError::ContentParsing(
+                "No chapters found (page layout changed or content is gated)".to_string(),
+            ));
+        }
+
+        Ok((title, chapters))
     }
 
     fn get_chapter(&self, href: &str) -> Result<ChapterStruct> {
