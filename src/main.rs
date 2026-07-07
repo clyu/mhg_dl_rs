@@ -82,7 +82,7 @@ type Result<T> = std::result::Result<T, AppError>;
 #[clap(author, version, about)]
 struct Args {
     /// Manhuagui URL or numeric ID
-    #[clap(value_name = "URL", required_unless_present = "search")]
+    #[clap(value_name = "URL", required_unless_present = "search", conflicts_with = "search")]
     url: Option<String>,
     /// Search keyword for comics
     #[clap(short, long)]
