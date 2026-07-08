@@ -585,19 +585,24 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
         }
         match range_parser::parse(input.trim()) {
             Ok(parsed_ranges) => {
-                // The user enters 1-based chapter numbers. We convert them to 0-based indices.
-                let mut indices: Vec<usize> = parsed_ranges
-                    .into_iter()
-                    .filter_map(|n: u32| n.checked_sub(1)) // Safely subtract 1, filtering out 0
-                    .map(|n| n as usize) // Convert u32 to usize
-                    .collect();
-                indices.sort();
-                indices.dedup();
-
-                if indices.is_empty() || indices.last().map_or(false, |&i| i >= chapters_count) {
+                // The user enters 1-based chapter numbers; reject the whole input if
+                // any of them is out of range instead of silently dropping it.
+                if parsed_ranges.is_empty()
+                    || parsed_ranges
+                        .iter()
+                        .any(|&n: &u32| n == 0 || n as usize > chapters_count)
+                {
                     eprintln!("Invalid chapter selection. Please enter numbers between 1 and {}.", chapters_count);
                     continue;
                 }
+
+                // Convert to 0-based indices.
+                let mut indices: Vec<usize> = parsed_ranges
+                    .into_iter()
+                    .map(|n| n as usize - 1)
+                    .collect();
+                indices.sort();
+                indices.dedup();
 
                 return Ok(indices.into_iter());
             }

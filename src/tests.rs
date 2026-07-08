@@ -249,6 +249,16 @@ fn test_prompt_for_chapters_dedup_and_sort() {
 }
 
 #[test]
+fn test_prompt_for_chapters_zero_rejected_whole_input() {
+    // "0,5" must be rejected as a whole and re-prompted,
+    // not silently narrowed down to chapter 5.
+    let mut input = std::io::Cursor::new("0,5\n1\n");
+    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap().collect();
+
+    assert_eq!(result, vec![0]);
+}
+
+#[test]
 fn test_prompt_for_chapters_eof() {
     // stdin closed immediately: must error out instead of looping forever
     let mut input = std::io::Cursor::new("");
