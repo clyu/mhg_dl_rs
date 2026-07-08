@@ -463,15 +463,8 @@ impl Comic {
                 .header("sec-fetch-mode", "no-cors")
                 .header("sec-fetch-site", "cross-site")
                 .query(&[("e", &e_str), ("m", &chap.sl.m)])
-                .send()?;
-
-            if !resp.status().is_success() {
-                return Err(AppError::ContentParsing(format!(
-                    "Failed to download image: HTTP {} for {}",
-                    resp.status(),
-                    url
-                )));
-            }
+                .send()?
+                .error_for_status()?;
 
             let content_length = resp.content_length();
             let mut out = fs::File::create(&dst_part)?;
