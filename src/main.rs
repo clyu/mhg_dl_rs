@@ -638,13 +638,9 @@ fn main() -> Result<()> {
             next_url = if let Some(path) = maybe_next {
                 print!("--- Press SPACE for next page, any other key to stop ---");
                 io::stdout().flush()?;
-                if wait_for_space() {
-                    println!();
-                    Some(format!("{}{}", HOST, path))
-                } else {
-                    println!();
-                    None
-                }
+                let advance = wait_for_space();
+                println!();
+                advance.then(|| format!("{}{}", HOST, path))
             } else {
                 None
             };
