@@ -555,24 +555,30 @@ impl Comic {
     }
 }
 
+/// Print `prompt`, then read one line and return it trimmed.
+/// Errors with `UnexpectedEof` if the input stream is closed.
+fn prompt_line<R: io::BufRead>(reader: &mut R, prompt: &str) -> Result<String> {
+    print!("{prompt}");
+    io::stdout().flush()?;
+    let mut input = String::new();
+    if reader.read_line(&mut input)? == 0 {
+        return Err(AppError::Io(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "stdin closed while waiting for input",
+        )));
+    }
+    Ok(input.trim().to_string())
+}
+
 fn prompt_for_comic_selection<R: io::BufRead>(reader: &mut R, comics_count: usize) -> Result<usize> {
     loop {
-        print!("Select a comic (enter number): ");
-        io::stdout().flush()?;
-        let mut input = String::new();
-        if reader.read_line(&mut input)? == 0 {
-            return Err(AppError::Io(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "stdin closed while waiting for comic selection",
-            )));
-        }
-        match input.trim().parse::<usize>() {
+        let input = prompt_line(reader, "Select a comic (enter number): ")?;
+        match input.parse::<usize>() {
             Ok(n) if n >= 1 && n <= comics_count => {
                 return Ok(n - 1);
             }
             _ => {
                 eprintln!("Invalid selection. Please enter a number between 1 and {}.", comics_count);
-                continue;
             }
         }
     }
@@ -580,16 +586,8 @@ fn prompt_for_comic_selection<R: io::BufRead>(reader: &mut R, comics_count: usiz
 
 fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
     loop {
-        print!("Select chapters (e.g. 1-3,5): ");
-        io::stdout().flush()?;
-        let mut input = String::new();
-        if reader.read_line(&mut input)? == 0 {
-            return Err(AppError::Io(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "stdin closed while waiting for chapter selection",
-            )));
-        }
-        match range_parser::parse(input.trim()) {
+        let input = prompt_line(reader, "Select chapters (e.g. 1-3,5): ")?;
+        match range_parser::parse(&input) {
             Ok(parsed_ranges) => {
                 // The user enters 1-based chapter numbers; reject the whole input if
                 // any of them is out of range instead of silently dropping it.
@@ -614,7 +612,6 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
             }
             Err(_) => {
                 eprintln!("Invalid input format. Please enter again.");
-                continue;
             }
         }
     }
