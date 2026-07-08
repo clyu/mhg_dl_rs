@@ -259,7 +259,7 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
     for li in document.select(&SEL_COMICS) {
         if let Some(link) = li.select(&SEL_LINK).next() {
             if let Some(href) = link.value().attr("href") {
-                if let Some(id_str) = href.split('/').find(|s| !s.is_empty() && s.chars().all(|c| c.is_numeric())) {
+                if let Some(id_str) = href.split('/').find(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())) {
                     if let Ok(comic_id) = id_str.parse::<usize>() {
                         if let Some(title) = link.value().attr("title") {
                             results.push(SearchResult {
