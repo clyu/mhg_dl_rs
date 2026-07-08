@@ -444,6 +444,7 @@ impl Comic {
             serde_json::Value::Number(n) => n.to_string(),
             _ => return Err(AppError::ContentParsing("sl.e is not a string or number".to_string())),
         };
+        let mut needs_delay = false;
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let file_safe = RE_ILLEGAL_CHARS.replace_all(file, "_");
@@ -454,6 +455,11 @@ impl Comic {
             if dst.exists() {
                 bar.inc(1);
                 continue;
+            }
+            // Space out consecutive downloads; no delay before the first one
+            // or after the last one.
+            if needs_delay {
+                thread::sleep(rand::rng().random_range(self.delay / 2..=self.delay * 3 / 2));
             }
             let mut resp = self
                 .client
@@ -481,7 +487,7 @@ impl Comic {
 
             fs::rename(&dst_part, &dst)?;
             bar.inc(1);
-            thread::sleep(rand::rng().random_range(self.delay / 2..=self.delay * 3 / 2));
+            needs_delay = true;
         }
         Ok(())
     }
