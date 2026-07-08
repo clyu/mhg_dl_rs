@@ -408,9 +408,8 @@ impl Comic {
         Ok((title, chapters))
     }
 
-    fn get_chapter(&self, href: &str) -> Result<ChapterStruct> {
-        let url = format!("{}{}", self.host, href);
-        let text = self.client.get(&url).send()?.text()?;
+    fn get_chapter(&self, url: &str) -> Result<ChapterStruct> {
+        let text = self.client.get(url).send()?.text()?;
         Self::parse_chapter_html(&text)
     }
 
@@ -532,7 +531,8 @@ impl Comic {
             println!("{} already exists, skipping.", zip_path.display());
             return Ok(false);
         }
-        let chap = self.get_chapter(href)?;
+        let chapter_url = format!("{}{}", self.host, href);
+        let chap = self.get_chapter(&chapter_url)?;
         let chapter_dir = book_dir.join(chap_safe.as_ref());
         fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
@@ -546,7 +546,6 @@ impl Comic {
         );
         bar.set_message(name.clone());
 
-        let chapter_url = format!("{}{}", self.host, href);
         self.download_images(&chap, &chapter_dir, &bar, &chapter_url)?;
         Comic::compress_chapter(&chapter_dir, &zip_path)?;
 
