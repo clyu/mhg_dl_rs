@@ -37,14 +37,14 @@ fn test_unpack_packed() {
     let a = 10;
     let c = 5;
     let data = vec![
-        "sl".to_string(),    // 0
-        "e".to_string(),     // 1
-        "m".to_string(),     // 2
-        "path".to_string(),  // 3
-        "files".to_string(), // 4
+        "sl",    // 0
+        "e",     // 1
+        "m",     // 2
+        "path",  // 3
+        "files", // 4
     ];
 
-    let result = unpack_packed(frame, a, c, data).unwrap();
+    let result = unpack_packed(frame, a, c, &data).unwrap();
 
     // Verify the unpacked data
     assert_eq!(result.path, "/comic/");
@@ -65,9 +65,9 @@ fn test_unpack_packed_invalid_base() {
     let frame = "{}";
     let a = 100; // Base exceeds alphabet size (62)
     let c = 1;   // Must be > 0 to trigger the loop that calls encode()
-    let data = vec!["dummy".to_string()];
+    let data = vec!["dummy"];
 
-    let result = unpack_packed(frame, a, c, data);
+    let result = unpack_packed(frame, a, c, &data);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("out of supported range"), "Error message was: {}", err_msg);
@@ -77,15 +77,15 @@ fn test_unpack_packed_invalid_base() {
 fn test_unpack_packed_base_too_small() {
     let frame = "{}";
     let c = 1; // Must be > 0 to trigger the loop that calls encode()
-    let data = vec!["dummy".to_string()];
+    let data = vec!["dummy"];
 
     // Base 0 would panic via divide-by-zero without the lower-bound guard.
-    let result = unpack_packed(frame, 0, c, data.clone());
+    let result = unpack_packed(frame, 0, c, &data);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("out of supported range"));
 
     // Base 1 would hang forever (value /= 1 never terminates) without the guard.
-    let result = unpack_packed(frame, 1, c, data);
+    let result = unpack_packed(frame, 1, c, &data);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("out of supported range"));
 }
@@ -96,9 +96,9 @@ fn test_unpack_packed_dictionary_size_mismatch() {
     let frame = "{}";
     let a = 10;
     let c = 10;  // Request 10 items in dictionary
-    let data = vec!["item1".to_string(), "item2".to_string()];  // But only provide 2
+    let data = vec!["item1", "item2"];  // But only provide 2
 
-    let result = unpack_packed(frame, a, c, data);
+    let result = unpack_packed(frame, a, c, &data);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("mismatch"), "Error message should mention mismatch: {}", err_msg);
@@ -110,9 +110,9 @@ fn test_unpack_packed_empty_dictionary() {
     let frame = "SMH.imgData({})";
     let a = 10;
     let c = 0;  // Empty dictionary
-    let data = vec![];
+    let data: Vec<&str> = vec![];
 
-    let result = unpack_packed(frame, a, c, data);
+    let result = unpack_packed(frame, a, c, &data);
     // Should either succeed with empty dict or fail gracefully
     // The function should handle this without panicking
     let _ = result;  // We're mainly testing it doesn't panic
@@ -125,11 +125,11 @@ fn test_unpack_packed_with_empty_strings_in_data() {
     let a = 10;
     let c = 2;
     let data = vec![
-        "mapped_0".to_string(),  // 0 -> "mapped_0"
-        "".to_string(),          // 1 -> "1" (uses encoded key)
+        "mapped_0", // 0 -> "mapped_0"
+        "",         // 1 -> "1" (uses encoded key)
     ];
 
-    let result = unpack_packed(frame, a, c, data);
+    let result = unpack_packed(frame, a, c, &data);
     // Should handle empty strings by using encoded keys
     if result.is_ok() {
         let chapter = result.unwrap();
@@ -622,18 +622,16 @@ fn test_unpack_packed_base_boundaries() {
     let frame = "SMH.imgData({\"path\":\"/test/\"})";
 
     // Minimum base (2)
-    let data = vec!["path".to_string()];
-    let result = unpack_packed(frame, 2, 1, data);
+    let data = vec!["path"];
+    let result = unpack_packed(frame, 2, 1, &data);
     assert!(result.is_ok() || result.is_err()); // Just ensure no panic
 
     // Maximum supported base (62)
-    let data = vec!["path".to_string()];
-    let result = unpack_packed(frame, 62, 1, data);
+    let result = unpack_packed(frame, 62, 1, &data);
     assert!(result.is_ok() || result.is_err()); // Just ensure no panic
 
     // Over limit (63+)
-    let data = vec!["path".to_string()];
-    let result = unpack_packed(frame, 63, 1, data);
+    let result = unpack_packed(frame, 63, 1, &data);
     assert!(result.is_err()); // Should fail
 }
 

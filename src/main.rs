@@ -146,7 +146,7 @@ fn unpack_packed(
     frame: &str,
     a: usize,
     c: usize,
-    data: Vec<String>,
+    data: &[&str],
 ) -> Result<ChapterStruct> {
     fn encode(mut value: usize, base: usize) -> Result<String> {
         const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -178,17 +178,16 @@ fn unpack_packed(
     }
     for i in 0..c {
         let key = encode(i, a)?;
-        let val = if data[i].is_empty() {
-            key.clone()
-        } else {
-            data[i].clone()
-        };
-        dmap.insert(key, val);
+        // An empty dictionary entry maps the word to itself, which is also
+        // what the replacement below does for unknown words — skip it.
+        if !data[i].is_empty() {
+            dmap.insert(key, data[i]);
+        }
     }
     let js = RE_WORD
         .replace_all(frame, |caps: &regex::Captures| {
             let key = caps.get(0).unwrap().as_str();
-            dmap.get(key).cloned().unwrap_or_else(|| key.to_string())
+            dmap.get(key).copied().unwrap_or(key).to_string()
         })
         .to_string();
     let caps = RE_JSON.captures(&js).ok_or_else(|| {
@@ -427,8 +426,8 @@ impl Comic {
         let data_dec = lz_string::Decoder::new()
             .decode_base64(data_b64)
             .map_err(|_| AppError::ContentParsing("Failed to decode base64 chapter data".to_string()))?;
-        let data = data_dec.split('|').map(|s| s.to_string()).collect();
-        unpack_packed(frame, a, c, data)
+        let data: Vec<&str> = data_dec.split('|').collect();
+        unpack_packed(frame, a, c, &data)
     }
 
     fn download_images(&self, chap: &ChapterStruct, chapter_dir: &Path, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
