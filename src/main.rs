@@ -25,6 +25,7 @@ use zip::{result::ZipError, write::FileOptions, CompressionMethod, ZipWriter};
 use std::sync::LazyLock;
 
 const HOST: &str = "https://tw.manhuagui.com";
+const TUNNEL_CHANNELS: [&str; 3] = ["i", "eu", "us"];
 
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap()
@@ -88,7 +89,7 @@ struct Args {
     #[clap(short, long)]
     search: Option<String>,
     /// Tunnel line: 0=i,1=eu,2=us
-    #[clap(short, long, default_value_t = 0)]
+    #[clap(short, long, default_value_t = 0, value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(..TUNNEL_CHANNELS.len() as u64))]
     tunnel: usize,
     /// Delay between pages in milliseconds
     #[clap(short, long, default_value_t = 1000)]
@@ -349,9 +350,7 @@ impl Comic {
         output_dir: String,
     ) -> Result<Self> {
         let host = String::from(HOST);
-        let channels = ["i", "eu", "us"];
-        let tn = channels.get(tunnel).unwrap_or(&"i");
-        let tunnel_url = format!("https://{}.hamreus.com", tn);
+        let tunnel_url = format!("https://{}.hamreus.com", TUNNEL_CHANNELS[tunnel]);
         let mut c = Comic {
             client,
             host,
