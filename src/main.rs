@@ -541,7 +541,7 @@ impl Comic {
         bar.set_message(name.clone());
 
         self.download_images(&chap, &chapter_dir, &bar, &chapter_url)?;
-        Comic::compress_chapter(&chapter_dir, &zip_path)?;
+        Self::compress_chapter(&chapter_dir, &zip_path)?;
 
         bar.finish();
         Ok(true)
