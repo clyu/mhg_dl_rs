@@ -613,6 +613,7 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
 fn main() -> Result<()> {
     let args = Args::parse();
     let client = build_client()?;
+    let mut stdin = io::stdin().lock();
 
     let id = if let Some(ref search_keyword) = args.search {
         let first_url = format!("{}/s/{}.html", HOST, urlencoding::encode(search_keyword));
@@ -645,9 +646,7 @@ fn main() -> Result<()> {
             return Err(AppError::ContentParsing("No search results".to_string()));
         }
 
-        let mut stdin = io::stdin().lock();
         let selected_id = prompt_for_comic_selection(&mut stdin, all_results.len())?;
-        drop(stdin);
         all_results[selected_id].comic_id
     } else {
         let url = args.url.as_ref().ok_or(AppError::InvalidUrl)?;
@@ -671,7 +670,6 @@ fn main() -> Result<()> {
         println!("  {}: {}", i + 1, chapter.name);
     }
 
-    let mut stdin = io::stdin().lock();
     let mut ranges = prompt_for_chapters(&mut stdin, comic.chapters.len())?.peekable();
 
     while let Some(idx) = ranges.next() {
