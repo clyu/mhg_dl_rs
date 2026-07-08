@@ -310,7 +310,7 @@ fn chapters_from_elements_with_tag<'a>(
 }
 
 fn extract_chapters_with_groups(document: &Html) -> Result<Vec<Chapter>> {
-    let headers: Vec<String> = {
+    let mut headers: Vec<String> = {
         let scoped: Vec<_> = document.select(&SEL_H4_SCOPED).collect();
         let sel = if scoped.is_empty() { &SEL_H4_BARE } else { &SEL_H4_SCOPED };
         document
@@ -320,21 +320,16 @@ fn extract_chapters_with_groups(document: &Html) -> Result<Vec<Chapter>> {
     };
 
     let lists: Vec<scraper::ElementRef> = document.select(&SEL_CHAPTER_LIST).collect();
+    while headers.len() < lists.len() {
+        headers.push("Chapters".to_string());
+    }
 
     let mut chapters = Vec::new();
-
-    if !lists.is_empty() {
-        let mut headers = headers;
-        while headers.len() < lists.len() {
-            headers.push("Chapters".to_string());
-        }
-
-        for (i, list_elem) in lists.iter().enumerate() {
-            let tag = &headers[i];
-            for ul_elem in list_elem.select(&SEL_UL) {
-                let ul_chaps = chapters_from_elements_with_tag(ul_elem.select(&SEL_CHAP_INNER), tag)?;
-                chapters.extend(ul_chaps);
-            }
+    for (i, list_elem) in lists.iter().enumerate() {
+        let tag = &headers[i];
+        for ul_elem in list_elem.select(&SEL_UL) {
+            let ul_chaps = chapters_from_elements_with_tag(ul_elem.select(&SEL_CHAP_INNER), tag)?;
+            chapters.extend(ul_chaps);
         }
     }
 
