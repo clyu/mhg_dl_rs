@@ -204,6 +204,12 @@ fn unpack_packed(
     Ok(serde_json::from_str(json_str)?)
 }
 
+fn decode_lz_base64(data: &str, what: &str) -> Result<String> {
+    lz_string::Decoder::new()
+        .decode_base64(data)
+        .map_err(|_| AppError::ContentParsing(format!("Failed to decode {}", what)))
+}
+
 fn build_client() -> Result<Client> {
     let mut headers = HeaderMap::new();
     for (key, value) in &[
@@ -383,11 +389,7 @@ impl Comic {
                 .next()
                 .and_then(|e| e.value().attr("value"))
             {
-                let decoded = lz_string::Decoder::new()
-                    .decode_base64(vs_val)
-                    .map_err(|_| AppError::ContentParsing(
-                        "Failed to decode __VIEWSTATE".to_string(),
-                    ))?;
+                let decoded = decode_lz_base64(vs_val, "__VIEWSTATE")?;
                 let inner = Html::parse_fragment(&decoded);
                 chapters = extract_chapters_with_groups(&inner)?;
             }
@@ -423,9 +425,7 @@ impl Comic {
         let c: usize = get_cap(3)?.parse()?;
         let data_b64 = get_cap(4)?;
 
-        let data_dec = lz_string::Decoder::new()
-            .decode_base64(data_b64)
-            .map_err(|_| AppError::ContentParsing("Failed to decode base64 chapter data".to_string()))?;
+        let data_dec = decode_lz_base64(data_b64, "base64 chapter data")?;
         let data: Vec<&str> = data_dec.split('|').collect();
         unpack_packed(frame, a, c, &data)
     }
