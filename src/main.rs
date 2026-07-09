@@ -204,6 +204,11 @@ fn unpack_packed(
     Ok(serde_json::from_str(json_str)?)
 }
 
+/// Replace characters that are invalid in file names with `_`.
+fn sanitize(s: &str) -> std::borrow::Cow<'_, str> {
+    RE_ILLEGAL_CHARS.replace_all(s, "_")
+}
+
 fn decode_lz_base64(data: &str, what: &str) -> Result<String> {
     lz_string::Decoder::new()
         .decode_base64(data)
@@ -440,7 +445,7 @@ impl Comic {
         let mut needs_delay = false;
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
-            let file_safe = RE_ILLEGAL_CHARS.replace_all(file, "_");
+            let file_safe = sanitize(file);
             let fname = format!("{:0width$}_{}", i, file_safe, width = width);
             let dst = chapter_dir.join(&fname);
             let dst_part = chapter_dir.join(format!("{fname}.part"));
@@ -517,8 +522,8 @@ impl Comic {
 
     fn download_chapter(&self, index: usize) -> Result<bool> {
         let Chapter { name, href, .. } = &self.chapters[index];
-        let book_safe = RE_ILLEGAL_CHARS.replace_all(&self.title, "_");
-        let chap_safe = RE_ILLEGAL_CHARS.replace_all(name, "_");
+        let book_safe = sanitize(&self.title);
+        let chap_safe = sanitize(name);
         let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
         let zip_path = book_dir.join(format!("{}_{}.cbz", book_safe, chap_safe));
         if zip_path.exists() {
