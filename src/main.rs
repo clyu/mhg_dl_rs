@@ -193,15 +193,7 @@ fn unpack_packed(
     let caps = RE_JSON.captures(&js).ok_or_else(|| {
         AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
     })?;
-    let json_str = caps
-        .get(1)
-        .ok_or_else(|| {
-            AppError::ContentParsing(
-                "Could not extract JSON string from unpacked script.".to_string(),
-            )
-        })?
-        .as_str();
-    Ok(serde_json::from_str(json_str)?)
+    Ok(serde_json::from_str(&caps[1])?)
 }
 
 /// Replace characters that are invalid in file names with `_`.
@@ -419,16 +411,10 @@ impl Comic {
             .captures(html)
             .ok_or_else(|| AppError::ContentParsing("Could not parse chapter data".to_string()))?;
 
-        let get_cap = |i: usize| {
-            caps.get(i)
-                .map(|m| m.as_str())
-                .ok_or_else(|| AppError::ContentParsing(format!("Capture group {} not found", i)))
-        };
-
-        let frame = get_cap(1)?;
-        let a: usize = get_cap(2)?.parse()?;
-        let c: usize = get_cap(3)?.parse()?;
-        let data_b64 = get_cap(4)?;
+        let frame = &caps[1];
+        let a: usize = caps[2].parse()?;
+        let c: usize = caps[3].parse()?;
+        let data_b64 = &caps[4];
 
         let data_dec = decode_lz_base64(data_b64, "base64 chapter data")?;
         let data: Vec<&str> = data_dec.split('|').collect();
