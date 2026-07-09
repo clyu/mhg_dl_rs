@@ -114,8 +114,26 @@ struct ChapterStruct {
 
 #[derive(Deserialize, Debug)]
 struct Sl {
-    e: serde_json::Value,
+    e: NumOrStr,
     m: String,
+}
+
+/// `sl.e` appears as either a number or a string in chapter data; accept both
+/// and reject anything else at deserialization time.
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum NumOrStr {
+    Num(serde_json::Number),
+    Str(String),
+}
+
+impl std::fmt::Display for NumOrStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NumOrStr::Num(n) => n.fmt(f),
+            NumOrStr::Str(s) => s.fmt(f),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -423,11 +441,7 @@ impl Comic {
 
     fn download_images(&self, chap: &ChapterStruct, chapter_dir: &Path, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
         let width = chap.files.len().saturating_sub(1).to_string().len();
-        let e_str = match &chap.sl.e {
-            serde_json::Value::String(s) => s.clone(),
-            serde_json::Value::Number(n) => n.to_string(),
-            _ => return Err(AppError::ContentParsing("sl.e is not a string or number".to_string())),
-        };
+        let e_str = chap.sl.e.to_string();
         let mut needs_delay = false;
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);

@@ -52,10 +52,9 @@ fn test_unpack_packed() {
     assert_eq!(result.files[0], "01.jpg");
 
     // Verify nested sl structure
-    if let serde_json::Value::String(e) = &result.sl.e {
-        assert_eq!(e, "123");
-    } else {
-        panic!("sl.e should be a string");
+    match &result.sl.e {
+        NumOrStr::Str(e) => assert_eq!(e, "123"),
+        other => panic!("sl.e should be a string, got {:?}", other),
     }
     assert_eq!(result.sl.m, "abc");
 }
@@ -742,7 +741,7 @@ fn test_download_incomplete_file() {
     };
 
     let chap = ChapterStruct {
-        sl: Sl { e: serde_json::Value::String("test_e".to_string()), m: "test_m".to_string() },
+        sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
         path: "/".to_string(),
         files: vec!["test.jpg".to_string()],
     };
@@ -795,7 +794,7 @@ fn test_download_resume_logic() {
     };
 
     let chap = ChapterStruct {
-        sl: Sl { e: serde_json::Value::String("test_e".to_string()), m: "test_m".to_string() },
+        sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
         path: "/".to_string(),
         files: vec!["test.jpg".to_string()],
     };
@@ -813,43 +812,29 @@ fn test_download_resume_logic() {
 }
 
 #[test]
-fn test_download_images_invalid_sl_e() {
-    use tempfile::TempDir;
+fn test_sl_e_number_or_string_only() {
+    // Valid: number
+    let chap: ChapterStruct =
+        serde_json::from_str(r#"{"sl":{"e":123,"m":"x"},"path":"/","files":[]}"#).unwrap();
+    assert_eq!(chap.sl.e.to_string(), "123");
 
-    let temp_dir = TempDir::new().unwrap();
-    let chapter_dir = temp_dir.path().to_path_buf();
-    let bar = ProgressBar::hidden();
+    // Valid: string
+    let chap: ChapterStruct =
+        serde_json::from_str(r#"{"sl":{"e":"abc","m":"x"},"path":"/","files":[]}"#).unwrap();
+    assert_eq!(chap.sl.e.to_string(), "abc");
 
-    let client = reqwest::blocking::Client::new();
-    let comic = Comic {
-        client,
-        host: "http://localhost".to_string(),
-        tunnel: "http://localhost".to_string(),
-        delay: Duration::from_millis(0),
-        title: "Test Comic".to_string(),
-        chapters: vec![],
-        output_dir: temp_dir.path().to_str().unwrap().to_string(),
-    };
-
-    // Case 1: sl.e is a boolean (invalid)
-    let chap_bool = ChapterStruct {
-        sl: Sl { e: serde_json::Value::Bool(true), m: "test_m".to_string() },
-        path: "/".to_string(),
-        files: vec!["test.jpg".to_string()],
-    };
-    let result = comic.download_images(&chap_bool, &chapter_dir, &bar, "http://localhost/chapter");
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("sl.e is not a string or number"));
-
-    // Case 2: sl.e is Null (invalid)
-    let chap_null = ChapterStruct {
-        sl: Sl { e: serde_json::Value::Null, m: "test_m".to_string() },
-        path: "/".to_string(),
-        files: vec!["test.jpg".to_string()],
-    };
-    let result = comic.download_images(&chap_null, &chapter_dir, &bar, "http://localhost/chapter");
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("sl.e is not a string or number"));
+    // Invalid types must be rejected at deserialization time
+    for bad in [
+        r#"{"sl":{"e":true,"m":"x"},"path":"/","files":[]}"#,
+        r#"{"sl":{"e":null,"m":"x"},"path":"/","files":[]}"#,
+        r#"{"sl":{"e":[1],"m":"x"},"path":"/","files":[]}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<ChapterStruct>(bad).is_err(),
+            "should reject: {}",
+            bad
+        );
+    }
 }
 
 #[test]
