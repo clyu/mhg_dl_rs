@@ -491,9 +491,7 @@ impl Comic {
     }
 
     fn compress_chapter(chapter_dir: &Path, zip_path: &Path) -> Result<()> {
-        let mut zip_part = zip_path.as_os_str().to_owned();
-        zip_part.push(".part");
-        let zip_part = PathBuf::from(zip_part);
+        let zip_part = zip_path.with_extension("cbz.part");
         let zip_file = fs::File::create(&zip_part)?;
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
