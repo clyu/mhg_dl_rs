@@ -272,27 +272,28 @@ fn wait_for_space() -> bool {
     result
 }
 
+fn search_result_from_item(li: scraper::ElementRef<'_>) -> Option<SearchResult> {
+    let link = li.select(&SEL_LINK).next()?;
+    let href = link.value().attr("href")?;
+    let comic_id = href
+        .split('/')
+        .find(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))?
+        .parse()
+        .ok()?;
+    let title = link.value().attr("title")?;
+    Some(SearchResult {
+        title: title.to_string(),
+        comic_id,
+    })
+}
+
 fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>)> {
     let document = Html::parse_document(html);
 
-    let mut results = Vec::new();
-
-    for li in document.select(&SEL_COMICS) {
-        if let Some(link) = li.select(&SEL_LINK).next() {
-            if let Some(href) = link.value().attr("href") {
-                if let Some(id_str) = href.split('/').find(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())) {
-                    if let Ok(comic_id) = id_str.parse::<usize>() {
-                        if let Some(title) = link.value().attr("title") {
-                            results.push(SearchResult {
-                                title: title.to_string(),
-                                comic_id,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let results: Vec<SearchResult> = document
+        .select(&SEL_COMICS)
+        .filter_map(search_result_from_item)
+        .collect();
 
     let next_page = document.select(&SEL_PAGER_LINKS)
         .find(|a| a.text().collect::<String>().trim() == "下一頁")
