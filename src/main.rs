@@ -614,44 +614,53 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
     }
 }
 
+/// Search for `keyword`, page through the results interactively, and let the
+/// user pick a comic. Returns the selected comic's ID.
+fn interactive_search<R: io::BufRead>(
+    client: &Client,
+    reader: &mut R,
+    keyword: &str,
+) -> Result<usize> {
+    let mut all_results: Vec<SearchResult> = Vec::new();
+    let mut next_url = Some(format!("{}/s/{}.html", HOST, urlencoding::encode(keyword)));
+
+    println!("Search results for '{}':", keyword);
+
+    while let Some(url) = next_url {
+        let (page_results, maybe_next) = search_comics(client, &url)?;
+        let offset = all_results.len();
+        for (i, r) in page_results.iter().enumerate() {
+            println!("{}. {}", offset + i + 1, r.title);
+        }
+        all_results.extend(page_results);
+
+        next_url = if let Some(path) = maybe_next {
+            print!("--- Press SPACE for next page, any other key to stop ---");
+            io::stdout().flush()?;
+            let advance = wait_for_space();
+            println!();
+            advance.then(|| format!("{}{}", HOST, path))
+        } else {
+            None
+        };
+    }
+
+    if all_results.is_empty() {
+        eprintln!("No comics found for '{}'", keyword);
+        return Err(AppError::ContentParsing("No search results".to_string()));
+    }
+
+    let selected = prompt_for_comic_selection(reader, all_results.len())?;
+    Ok(all_results[selected].comic_id)
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let client = build_client()?;
     let mut stdin = io::stdin().lock();
 
     let id = if let Some(ref search_keyword) = args.search {
-        let first_url = format!("{}/s/{}.html", HOST, urlencoding::encode(search_keyword));
-        let mut all_results: Vec<SearchResult> = Vec::new();
-        let mut next_url: Option<String> = Some(first_url);
-
-        println!("Search results for '{}':", search_keyword);
-
-        while let Some(url) = next_url {
-            let (page_results, maybe_next) = search_comics(&client, &url)?;
-            let offset = all_results.len();
-            for (i, r) in page_results.iter().enumerate() {
-                println!("{}. {}", offset + i + 1, r.title);
-            }
-            all_results.extend(page_results);
-
-            next_url = if let Some(path) = maybe_next {
-                print!("--- Press SPACE for next page, any other key to stop ---");
-                io::stdout().flush()?;
-                let advance = wait_for_space();
-                println!();
-                advance.then(|| format!("{}{}", HOST, path))
-            } else {
-                None
-            };
-        }
-
-        if all_results.is_empty() {
-            eprintln!("No comics found for '{}'", search_keyword);
-            return Err(AppError::ContentParsing("No search results".to_string()));
-        }
-
-        let selected_id = prompt_for_comic_selection(&mut stdin, all_results.len())?;
-        all_results[selected_id].comic_id
+        interactive_search(&client, &mut stdin, search_keyword)?
     } else {
         let url = args.url.as_ref().ok_or(AppError::InvalidUrl)?;
         parse_id(url).ok_or(AppError::InvalidUrl)?
