@@ -302,7 +302,7 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
     Ok((results, next_page))
 }
 
-fn chapters_from_elements_with_tag<'a>(
+fn chapters_from_elements_with_group<'a>(
     elements: impl Iterator<Item = scraper::ElementRef<'a>>,
     group: &str,
 ) -> Result<Vec<Chapter>> {
@@ -348,9 +348,10 @@ fn extract_chapters_with_groups(document: &Html) -> Result<Vec<Chapter>> {
 
     let mut chapters = Vec::new();
     for (i, list_elem) in lists.iter().enumerate() {
-        let tag = &headers[i];
+        let group = &headers[i];
         for ul_elem in list_elem.select(&SEL_UL) {
-            let ul_chaps = chapters_from_elements_with_tag(ul_elem.select(&SEL_CHAP_INNER), tag)?;
+            let ul_chaps =
+                chapters_from_elements_with_group(ul_elem.select(&SEL_CHAP_INNER), group)?;
             chapters.extend(ul_chaps);
         }
     }
