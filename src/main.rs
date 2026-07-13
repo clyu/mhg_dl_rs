@@ -245,7 +245,7 @@ fn build_client() -> Result<Client> {
 }
 
 fn search_comics(client: &Client, url: &str) -> Result<(Vec<SearchResult>, Option<String>)> {
-    let res = client.get(url).send()?.text()?;
+    let res = client.get(url).send()?.error_for_status()?.text()?;
     parse_search_results(&res)
 }
 
@@ -382,7 +382,7 @@ impl Comic {
 
     fn load_metadata(&mut self, id: usize) -> Result<()> {
         let url = format!("{}/comic/{}", self.host, id);
-        let res = self.client.get(&url).send()?.text()?;
+        let res = self.client.get(&url).send()?.error_for_status()?.text()?;
         let (title, chapters) = Self::parse_comic_html(&res)?;
         self.title = title;
         self.chapters = chapters;
@@ -421,7 +421,7 @@ impl Comic {
     }
 
     fn get_chapter(&self, url: &str) -> Result<ChapterStruct> {
-        let text = self.client.get(url).send()?.text()?;
+        let text = self.client.get(url).send()?.error_for_status()?.text()?;
         Self::parse_chapter_html(&text)
     }
 
