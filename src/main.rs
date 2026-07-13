@@ -367,27 +367,17 @@ impl Comic {
         output_dir: String,
     ) -> Result<Self> {
         let host = String::from(HOST);
-        let tunnel_url = format!("https://{}.hamreus.com", TUNNEL_CHANNELS[tunnel]);
-        let mut c = Comic {
+        let res = fetch_html(&client, &format!("{}/comic/{}", host, id))?;
+        let (title, chapters) = Self::parse_comic_html(&res)?;
+        Ok(Comic {
             client,
             host,
-            tunnel: tunnel_url,
+            tunnel: format!("https://{}.hamreus.com", TUNNEL_CHANNELS[tunnel]),
             delay: Duration::from_millis(delay_ms),
-            title: String::new(),
-            chapters: Vec::new(),
+            title,
+            chapters,
             output_dir,
-        };
-        c.load_metadata(id)?;
-        Ok(c)
-    }
-
-    fn load_metadata(&mut self, id: usize) -> Result<()> {
-        let url = format!("{}/comic/{}", self.host, id);
-        let res = fetch_html(&self.client, &url)?;
-        let (title, chapters) = Self::parse_comic_html(&res)?;
-        self.title = title;
-        self.chapters = chapters;
-        Ok(())
+        })
     }
 
     fn parse_comic_html(html: &str) -> Result<(String, Vec<Chapter>)> {
