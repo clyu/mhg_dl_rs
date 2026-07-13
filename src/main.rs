@@ -330,14 +330,16 @@ fn chapters_from_elements_with_tag<'a>(
 }
 
 fn extract_chapters_with_groups(document: &Html) -> Result<Vec<Chapter>> {
-    let mut headers: Vec<String> = {
-        let scoped: Vec<_> = document.select(&SEL_H4_SCOPED).collect();
-        let sel = if scoped.is_empty() { &SEL_H4_BARE } else { &SEL_H4_SCOPED };
+    let header_texts = |sel: &Selector| -> Vec<String> {
         document
             .select(sel)
             .map(|h| h.text().collect::<String>().trim().to_string())
             .collect()
     };
+    let mut headers = header_texts(&SEL_H4_SCOPED);
+    if headers.is_empty() {
+        headers = header_texts(&SEL_H4_BARE);
+    }
 
     let lists: Vec<scraper::ElementRef> = document.select(&SEL_CHAPTER_LIST).collect();
     while headers.len() < lists.len() {
