@@ -23,10 +23,18 @@ fn test_parse_id() {
     assert_eq!(parse_id("https://m.manhuagui.com/comic/12345"), Some(12345));
     assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345"), Some(12345));
 
+    // Test full chapter URL (extra path segments after the ID are fine)
+    assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345/67890.html"), Some(12345));
+
     // Test invalid inputs
     assert_eq!(parse_id("https://google.com/comic/12345"), None);
     assert_eq!(parse_id("abcde"), None);
     assert_eq!(parse_id(""), None);
+
+    // The ID must end at a word boundary: trailing garbage glued to the
+    // digits must not be silently accepted as a valid ID.
+    assert_eq!(parse_id("123abc"), None);
+    assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345garbage"), None);
 }
 
 #[test]

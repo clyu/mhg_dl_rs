@@ -28,7 +28,7 @@ const HOST: &str = "https://tw.manhuagui.com";
 const TUNNEL_CHANNELS: [&str; 3] = ["i", "eu", "us"];
 
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)").unwrap()
+    Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)\b").unwrap()
 });
 static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\w+\b").unwrap());
 static RE_JSON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\((\{.*?\})\)").unwrap());
