@@ -154,7 +154,9 @@ struct Comic {
     delay: Duration,
     title: String,
     chapters: Vec<Chapter>,
-    output_dir: String,
+    /// Sanitized title, used as the book directory name and zip name prefix.
+    book_safe: String,
+    book_dir: PathBuf,
 }
 
 fn unpack_packed(
@@ -364,6 +366,8 @@ impl Comic {
         let host = String::from(HOST);
         let res = fetch_html(&client, &format!("{}/comic/{}", host, id))?;
         let (title, chapters) = Self::parse_comic_html(&res)?;
+        let book_safe = sanitize(&title).into_owned();
+        let book_dir = PathBuf::from(output_dir).join(&book_safe);
         Ok(Comic {
             client,
             host,
@@ -371,7 +375,8 @@ impl Comic {
             delay: Duration::from_millis(delay_ms),
             title,
             chapters,
-            output_dir,
+            book_safe,
+            book_dir,
         })
     }
 
@@ -507,17 +512,17 @@ impl Comic {
 
     fn download_chapter(&self, index: usize) -> Result<bool> {
         let Chapter { name, href, .. } = &self.chapters[index];
-        let book_safe = sanitize(&self.title);
         let chap_safe = sanitize(name);
-        let book_dir = PathBuf::from(&self.output_dir).join(book_safe.as_ref());
-        let zip_path = book_dir.join(format!("{}_{}.cbz", book_safe, chap_safe));
+        let zip_path = self
+            .book_dir
+            .join(format!("{}_{}.cbz", self.book_safe, chap_safe));
         if zip_path.exists() {
             println!("{} already exists, skipping.", zip_path.display());
             return Ok(false);
         }
         let chapter_url = format!("{}{}", self.host, href);
         let chap = self.get_chapter(&chapter_url)?;
-        let chapter_dir = book_dir.join(chap_safe.as_ref());
+        let chapter_dir = self.book_dir.join(chap_safe.as_ref());
         fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
         bar.set_style(

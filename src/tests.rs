@@ -792,7 +792,8 @@ fn test_download_incomplete_file() {
         delay: Duration::from_millis(0),
         title: "Test Comic".to_string(),
         chapters: vec![],
-        output_dir: temp_dir.path().to_str().unwrap().to_string(),
+        book_safe: "Test Comic".to_string(),
+        book_dir: temp_dir.path().to_path_buf(),
     };
 
     let chap = ChapterStruct {
@@ -845,7 +846,8 @@ fn test_download_resume_logic() {
         delay: Duration::from_millis(0),
         title: "Test Comic".to_string(),
         chapters: vec![],
-        output_dir: temp_dir.path().to_str().unwrap().to_string(),
+        book_safe: "Test Comic".to_string(),
+        book_dir: temp_dir.path().to_path_buf(),
     };
 
     let chap = ChapterStruct {
