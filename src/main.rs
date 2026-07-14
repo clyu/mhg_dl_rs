@@ -666,11 +666,11 @@ fn main() -> Result<()> {
         args.output_dir,
     )?;
     println!("Title: {}", comic.title);
-    let mut last_group = String::new();
+    let mut last_group = "";
     for (i, chapter) in comic.chapters.iter().enumerate() {
         if chapter.group != last_group {
             println!("{}:", chapter.group);
-            last_group = chapter.group.clone();
+            last_group = &chapter.group;
         }
         println!("  {}: {}", i + 1, chapter.name);
     }
