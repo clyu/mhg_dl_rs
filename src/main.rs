@@ -48,9 +48,6 @@ static SEL_PAGER_LINKS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("div.pager a").unwrap());
 static SEL_VIEWSTATE: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("input#__VIEWSTATE").unwrap());
-static SEL_H4_SCOPED: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse(".chapter h4").unwrap());
-static SEL_H4_BARE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("h4").unwrap());
 static SEL_CHAPTER_LIST: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(".chapter-list").unwrap());
 
@@ -329,29 +326,26 @@ fn chapters_from_elements_with_group<'a>(
     Ok(chapters)
 }
 
+/// The section heading of a chapter list is the nearest `h4` among its
+/// preceding siblings (other elements like the pager or tip blocks may sit
+/// in between).
+fn group_for_list(list_elem: scraper::ElementRef<'_>) -> String {
+    list_elem
+        .prev_siblings()
+        .filter_map(scraper::ElementRef::wrap)
+        .find(|e| e.value().name() == "h4")
+        .map(|h| h.text().collect::<String>().trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Chapters".to_string())
+}
+
 fn extract_chapters_with_groups(document: &Html) -> Result<Vec<Chapter>> {
-    let header_texts = |sel: &Selector| -> Vec<String> {
-        document
-            .select(sel)
-            .map(|h| h.text().collect::<String>().trim().to_string())
-            .collect()
-    };
-    let mut headers = header_texts(&SEL_H4_SCOPED);
-    if headers.is_empty() {
-        headers = header_texts(&SEL_H4_BARE);
-    }
-
-    let lists: Vec<scraper::ElementRef> = document.select(&SEL_CHAPTER_LIST).collect();
-    while headers.len() < lists.len() {
-        headers.push("Chapters".to_string());
-    }
-
     let mut chapters = Vec::new();
-    for (i, list_elem) in lists.iter().enumerate() {
-        let group = &headers[i];
+    for list_elem in document.select(&SEL_CHAPTER_LIST) {
+        let group = group_for_list(list_elem);
         for ul_elem in list_elem.select(&SEL_UL) {
             let ul_chaps =
-                chapters_from_elements_with_group(ul_elem.select(&SEL_CHAP_INNER), group)?;
+                chapters_from_elements_with_group(ul_elem.select(&SEL_CHAP_INNER), &group)?;
             chapters.extend(ul_chaps);
         }
     }

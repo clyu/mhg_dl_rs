@@ -208,6 +208,53 @@ fn test_comic_metadata_extraction_no_chapters_is_error() {
 }
 
 #[test]
+fn test_extract_chapters_group_from_nearest_h4() {
+    // The group must come from the nearest preceding sibling h4, skipping
+    // unrelated elements (pager, tip blocks) sitting between the h4 and its
+    // chapter-list, and ignoring h4s that belong to an earlier section.
+    let html = r#"
+        <h4><span>單話</span></h4>
+        <div class="chapter-page"><a href="javascript:;">1-10</a></div>
+        <div class="chapter-list"><ul>
+            <li><a href="/comic/1/102.html" title="第02話">第02話</a></li>
+            <li><a href="/comic/1/101.html" title="第01話">第01話</a></li>
+        </ul></div>
+        <h4><span>單行本</span></h4>
+        <div class="chapter-list"><ul>
+            <li><a href="/comic/1/201.html" title="第01卷">第01卷</a></li>
+        </ul></div>
+    "#;
+    let document = Html::parse_fragment(html);
+    let chapters = extract_chapters_with_groups(&document).unwrap();
+    let got: Vec<(&str, &str)> = chapters
+        .iter()
+        .map(|c| (c.group.as_str(), c.name.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("單話", "第01話"),
+            ("單話", "第02話"),
+            ("單行本", "第01卷"),
+        ]
+    );
+}
+
+#[test]
+fn test_extract_chapters_group_fallback_without_h4() {
+    // A chapter-list with no preceding h4 gets the generic fallback group.
+    let html = r#"
+        <div class="chapter-list"><ul>
+            <li><a href="/comic/1/101.html" title="第01話">第01話</a></li>
+        </ul></div>
+    "#;
+    let document = Html::parse_fragment(html);
+    let chapters = extract_chapters_with_groups(&document).unwrap();
+    assert_eq!(chapters.len(), 1);
+    assert_eq!(chapters[0].group, "Chapters");
+}
+
+#[test]
 fn test_chapter_parsing_from_real_html() {
     let html = load_test_html("comic_40811_chapter_1.html");
     let chapter = Comic::parse_chapter_html(&html).expect("Failed to parse chapter HTML");
