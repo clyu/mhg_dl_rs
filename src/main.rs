@@ -165,17 +165,11 @@ fn unpack_packed(
     c: usize,
     data: &[&str],
 ) -> Result<ChapterStruct> {
-    fn encode(mut value: usize, base: usize) -> Result<String> {
-        const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        if base < 2 || base > DIGITS.len() {
-            return Err(AppError::ContentParsing(format!(
-                "Base {} out of supported range (2..={})",
-                base,
-                DIGITS.len()
-            )));
-        }
+    const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    // `encode` relies on the base being validated once up front.
+    fn encode(mut value: usize, base: usize) -> String {
         if value == 0 {
-            return Ok("0".to_string());
+            return "0".to_string();
         }
         let mut res = String::new();
         while value > 0 {
@@ -183,7 +177,14 @@ fn unpack_packed(
             res.insert(0, DIGITS.as_bytes()[rem] as char);
             value /= base;
         }
-        Ok(res)
+        res
+    }
+    if a < 2 || a > DIGITS.len() {
+        return Err(AppError::ContentParsing(format!(
+            "Base {} out of supported range (2..={})",
+            a,
+            DIGITS.len()
+        )));
     }
     let mut dmap = std::collections::HashMap::new();
     if c > data.len() {
@@ -194,7 +195,7 @@ fn unpack_packed(
         )));
     }
     for i in 0..c {
-        let key = encode(i, a)?;
+        let key = encode(i, a);
         // An empty dictionary entry maps the word to itself, which is also
         // what the replacement below does for unknown words — skip it.
         if !data[i].is_empty() {

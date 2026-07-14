@@ -71,7 +71,7 @@ fn test_unpack_packed() {
 fn test_unpack_packed_invalid_base() {
     let frame = "{}";
     let a = 100; // Base exceeds alphabet size (62)
-    let c = 1;   // Must be > 0 to trigger the loop that calls encode()
+    let c = 1;
     let data = vec!["dummy"];
 
     let result = unpack_packed(frame, a, c, &data);
@@ -83,10 +83,10 @@ fn test_unpack_packed_invalid_base() {
 #[test]
 fn test_unpack_packed_base_too_small() {
     let frame = "{}";
-    let c = 1; // Must be > 0 to trigger the loop that calls encode()
+    let c = 1;
     let data = vec!["dummy"];
 
-    // Base 0 would panic via divide-by-zero without the lower-bound guard.
+    // Base 0 would panic via divide-by-zero without the up-front guard.
     let result = unpack_packed(frame, 0, c, &data);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("out of supported range"));
