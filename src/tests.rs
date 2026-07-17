@@ -45,7 +45,8 @@ fn test_parse_id() {
 #[test]
 fn test_unpack_packed() {
     // A simplified example of "packed" JavaScript code and its dictionary.
-    // Removed spaces between '(' and '{' to match the RE_JSON regex: .*\((\{.*\})\).*
+    // No space between '(' and '{': the RE_JSON regex \((\{.*?\})\) requires
+    // the brace to immediately follow the parenthesis.
     let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[\"01.jpg\"]})";
     let a = 10;
     let c = 5;
@@ -651,9 +652,8 @@ fn test_illegal_chars_consecutive_illegal() {
 
 #[test]
 fn test_illegal_chars_windows_forbidden() {
-    // Test characters that the regex actually matches
-    // Note: The regex pattern is [\/:*?"<>|] which matches:
-    // /, :, *, ?, ", <, >, | (but NOT \)
+    // The regex pattern is [\\/:*?"<>|], covering every character Windows
+    // forbids in file names: \, /, :, *, ?, ", <, >, |
     let re = &*RE_ILLEGAL_CHARS;
     let forbidden_by_regex = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
@@ -744,21 +744,25 @@ fn test_compress_chapter_file_ordering() {
 
 #[test]
 fn test_directory_traversal_prevention() {
-    // Test that path sanitization prevents directory traversal attempts
+    // Sanitization must strip every path separator so a hostile title or
+    // chapter name cannot escape the output directory when joined into a
+    // path. "%2f" stays as-is: it is only meaningful to URL decoders and is
+    // harmless literal text in a file name.
     let re = &*RE_ILLEGAL_CHARS;
 
-    let dangerous_paths = vec![
-        "../../../etc/passwd",
-        "..\\..\\windows\\system32",
-        "..%2f..%2fetc",
-        "/etc/passwd",
-        "\\windows\\system32",
+    let cases = vec![
+        ("../../../etc/passwd", ".._.._.._etc_passwd"),
+        ("..\\..\\windows\\system32", ".._.._windows_system32"),
+        ("..%2f..%2fetc", "..%2f..%2fetc"),
+        ("/etc/passwd", "_etc_passwd"),
+        ("\\windows\\system32", "_windows_system32"),
     ];
 
-    for path in dangerous_paths {
+    for (path, expected) in cases {
         let safe_path = re.replace_all(path, "_").to_string();
-        // Forward slashes and backslashes should be removed
+        assert_eq!(safe_path, expected, "Sanitizing: {}", path);
         assert!(!safe_path.contains('/'), "Path: {} still contains /", path);
+        assert!(!safe_path.contains('\\'), "Path: {} still contains \\", path);
     }
 }
 
