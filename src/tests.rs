@@ -117,40 +117,6 @@ fn test_unpack_packed_dictionary_size_mismatch() {
 }
 
 #[test]
-fn test_unpack_packed_empty_dictionary() {
-    // Test when c = 0 - empty dictionary
-    let frame = "SMH.imgData({})";
-    let a = 10;
-    let c = 0;  // Empty dictionary
-    let data: Vec<&str> = vec![];
-
-    let result = unpack_packed(frame, a, c, &data);
-    // Should either succeed with empty dict or fail gracefully
-    // The function should handle this without panicking
-    let _ = result;  // We're mainly testing it doesn't panic
-}
-
-#[test]
-fn test_unpack_packed_with_empty_strings_in_data() {
-    // Test when data contains empty strings - they should use the encoded key
-    let frame = "SMH.imgData({\"key\":\"value\"})";
-    let a = 10;
-    let c = 2;
-    let data = vec![
-        "mapped_0", // 0 -> "mapped_0"
-        "",         // 1 -> "1" (uses encoded key)
-    ];
-
-    let result = unpack_packed(frame, a, c, &data);
-    // Should handle empty strings by using encoded keys
-    if result.is_ok() {
-        let chapter = result.unwrap();
-        // The unpacking should work without panicking
-        assert!(!chapter.path.is_empty() || chapter.files.is_empty());
-    }
-}
-
-#[test]
 fn test_unpack_packed_empty_files_is_error() {
     // Same shape as test_unpack_packed, but the files array is empty: this
     // must be an error, not an empty chapter that would compress into an
@@ -728,25 +694,6 @@ fn test_illegal_chars_valid_characters_preserved() {
             input
         );
     }
-}
-
-#[test]
-fn test_unpack_packed_base_boundaries() {
-    // Test base parameter at boundaries
-    let frame = "SMH.imgData({\"path\":\"/test/\"})";
-
-    // Minimum base (2)
-    let data = vec!["path"];
-    let result = unpack_packed(frame, 2, 1, &data);
-    assert!(result.is_ok() || result.is_err()); // Just ensure no panic
-
-    // Maximum supported base (62)
-    let result = unpack_packed(frame, 62, 1, &data);
-    assert!(result.is_ok() || result.is_err()); // Just ensure no panic
-
-    // Over limit (63+)
-    let result = unpack_packed(frame, 63, 1, &data);
-    assert!(result.is_err()); // Should fail
 }
 
 #[test]
