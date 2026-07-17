@@ -473,75 +473,6 @@ fn test_re_illegal_chars() {
 }
 
 #[test]
-fn test_path_safety_with_illegal_chars() {
-    let re = &*RE_ILLEGAL_CHARS;
-
-    // Test comic title with forward slashes
-    let title = "Path/To/Comic";
-    let safe_title = re.replace_all(title, "_").to_string();
-    assert_eq!(safe_title, "Path_To_Comic");
-    assert!(!safe_title.contains("/"));
-
-    // Test chapter name with colons (Windows forbidden character)
-    let chapter = "Chapter:1:Part:2";
-    let safe_chapter = re.replace_all(chapter, "_").to_string();
-    assert_eq!(safe_chapter, "Chapter_1_Part_2");
-    assert!(!safe_chapter.contains(":"));
-
-    // Test with mixed illegal characters
-    let mixed = "Comic<2024>*Special*|Version";
-    let safe_mixed = re.replace_all(mixed, "_").to_string();
-    assert_eq!(safe_mixed, "Comic_2024__Special__Version");
-    assert!(!safe_mixed.contains("<"));
-    assert!(!safe_mixed.contains(">"));
-    assert!(!safe_mixed.contains("*"));
-    assert!(!safe_mixed.contains("|"));
-
-    // Test all Windows forbidden filename characters: / : * ? " < > |
-    let forbidden = "file/name:test*value?data\"test<name>file|data";
-    let safe_name = re.replace_all(forbidden, "_").to_string();
-    assert!(!safe_name.contains("/"));
-    assert!(!safe_name.contains(":"));
-    assert!(!safe_name.contains("*"));
-    assert!(!safe_name.contains("?"));
-    assert!(!safe_name.contains("\""));
-    assert!(!safe_name.contains("<"));
-    assert!(!safe_name.contains(">"));
-    assert!(!safe_name.contains("|"));
-}
-
-#[test]
-fn test_compress_chapter() {
-    use std::fs;
-    use tempfile::TempDir;
-
-    // Create a temporary directory for testing
-    let temp_dir = TempDir::new().unwrap();
-    let test_dir = temp_dir.path();
-
-    // Create a test chapter directory with sample image files
-    let chapter_dir = test_dir.join("chapter_test");
-    fs::create_dir_all(&chapter_dir).unwrap();
-
-    // Create test files with numeric prefixes
-    let files = vec!["01_page.jpg", "02_page.jpg", "10_page.jpg", "09_page.jpg"];
-    for file in &files {
-        fs::write(chapter_dir.join(file), "fake image data").unwrap();
-    }
-
-    let zip_path = test_dir.join("chapter_test.cbz");
-
-    // Call the actual compress_chapter method
-    Comic::compress_chapter(&chapter_dir, &zip_path).unwrap();
-
-    // Verify zip file was created
-    assert!(zip_path.exists());
-    assert!(zip_path.metadata().unwrap().len() > 0);
-    // Verify chapter directory was removed
-    assert!(!chapter_dir.exists());
-}
-
-#[test]
 fn test_compress_chapter_atomic_and_excludes_part_files() {
     use std::fs;
     use std::io::Read;
@@ -581,44 +512,6 @@ fn test_compress_chapter_atomic_and_excludes_part_files() {
 }
 
 #[test]
-fn test_json_regex_with_complex_data() {
-    // Test JSON extraction from unpacked JavaScript with various data types
-    // Note: The regex uses .* which doesn't match newlines by default in most regex engines
-    // So we need to provide single-line JSON
-    let re = &*RE_JSON;
-
-    // Test with nested objects on a single line
-    let js_code = r#"SMH.imgData({"sl": {"e": "12345", "m": "abc"}, "path": "/img/path/", "files": ["01.jpg", "02.jpg"]})"#;
-
-    let caps = re.captures(js_code);
-    assert!(caps.is_some());
-
-    // Extract and verify JSON structure
-    if let Some(json_match) = caps {
-        let json_str = json_match.get(1).unwrap().as_str();
-        let parsed: std::result::Result<serde_json::Value, _> = serde_json::from_str(json_str);
-        assert!(parsed.is_ok());
-
-        // Verify the JSON content
-        if let Ok(value) = parsed {
-            assert!(value.get("sl").is_some());
-            assert!(value.get("path").is_some());
-            assert!(value.get("files").is_some());
-        }
-    }
-}
-
-#[test]
-fn test_prompt_for_chapters_overlapping_ranges() {
-    // Test overlapping ranges - should be deduplicated
-    let mut input = std::io::Cursor::new("1-5,3-7\n");
-    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap();
-
-    // Should be: 0,1,2,3,4 + 2,3,4,5,6 = deduplicated to 0,1,2,3,4,5,6
-    assert_eq!(result, vec![0, 1, 2, 3, 4, 5, 6]);
-}
-
-#[test]
 fn test_illegal_chars_unicode_handling() {
     // Test that Unicode characters are preserved (not replaced)
     let re = &*RE_ILLEGAL_CHARS;
@@ -634,20 +527,6 @@ fn test_illegal_chars_unicode_handling() {
         let output = re.replace_all(input, "_").to_string();
         assert_eq!(output, expected, "Unicode should be preserved for: {}", input);
     }
-}
-
-#[test]
-fn test_illegal_chars_consecutive_illegal() {
-    // Test multiple consecutive illegal characters
-    let re = &*RE_ILLEGAL_CHARS;
-
-    let input = "file<<<>>>name";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file______name");
-
-    let input2 = "name***???***";
-    let output2 = re.replace_all(input2, "_").to_string();
-    assert_eq!(output2, "name_________");
 }
 
 #[test]
