@@ -76,14 +76,19 @@ fn test_unpack_packed() {
 #[test]
 fn test_unpack_packed_invalid_base() {
     let frame = "{}";
-    let a = 100; // Base exceeds alphabet size (62)
     let c = 1;
     let data = vec!["dummy"];
 
-    let result = unpack_packed(frame, a, c, &data);
+    // Base exceeds alphabet size (62)
+    let result = unpack_packed(frame, 100, c, &data);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("out of supported range"), "Error message was: {}", err_msg);
+
+    // Exact boundary: 62 is the largest supported base, 63 must be rejected
+    let result = unpack_packed(frame, 63, c, &data);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("out of supported range"));
 }
 
 #[test]
