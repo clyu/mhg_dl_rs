@@ -260,65 +260,17 @@ fn test_chapter_parsing_from_real_html() {
 
 
 #[test]
-fn test_prompt_for_chapters_valid() {
-    let mut input = std::io::Cursor::new("1-3,5\n");
-    let chapters_count = 10;
-    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap();
-
-    // 1-3 -> 0, 1, 2
-    // 5 -> 4
-    assert_eq!(result, vec![0, 1, 2, 4]);
-}
-
-#[test]
 fn test_prompt_for_chapters_retry_on_invalid() {
+    // The prompt loop re-prompts on any input rejected by
+    // parse_chapter_selection (which inputs are rejected is covered by
+    // test_parse_chapter_selection) and passes the first accepted result
+    // through unchanged.
     // First input is out of bounds (11 > 10), second is invalid format, third is valid.
-    let mut input = std::io::Cursor::new("11\ninvalid\n2,4\n");
+    let mut input = std::io::Cursor::new("11\ninvalid\n1-3,5\n");
     let chapters_count = 10;
     let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap();
 
-    assert_eq!(result, vec![1, 3]);
-}
-
-#[test]
-fn test_prompt_for_chapters_dedup_and_sort() {
-    let mut input = std::io::Cursor::new("5,3-4,3\n");
-    let chapters_count = 10;
-    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap();
-
-    // 5 -> 4
-    // 3-4 -> 2, 3
-    // 3 -> 2
-    // Result should be sorted and unique: 2, 3, 4
-    assert_eq!(result, vec![2, 3, 4]);
-}
-
-#[test]
-fn test_prompt_for_chapters_zero_rejected_whole_input() {
-    // "0,5" must be rejected as a whole and re-prompted,
-    // not silently narrowed down to chapter 5.
-    let mut input = std::io::Cursor::new("0,5\n1\n");
-    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap();
-
-    assert_eq!(result, vec![0]);
-}
-
-#[test]
-fn test_prompt_for_chapters_huge_range_rejected_before_expansion() {
-    // A typo like "1-999999999" must be rejected by the bounds check before
-    // the range is expanded, not allocate billions of entries first.
-    let mut input = std::io::Cursor::new("1-999999999\n2\n");
-    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap();
-
-    assert_eq!(result, vec![1]);
-}
-
-#[test]
-fn test_prompt_for_chapters_reversed_range_rejected() {
-    let mut input = std::io::Cursor::new("5-3\n3-5\n");
-    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap();
-
-    assert_eq!(result, vec![2, 3, 4]);
+    assert_eq!(result, vec![0, 1, 2, 4]);
 }
 
 #[test]
@@ -328,12 +280,16 @@ fn test_parse_chapter_selection() {
     assert_eq!(parse_chapter_selection("10", 10), Some(vec![9]));
     assert_eq!(parse_chapter_selection(" 2 , 4 - 5 ", 10), Some(vec![1, 3, 4]));
     assert_eq!(parse_chapter_selection("1-5,3-7", 10), Some(vec![0, 1, 2, 3, 4, 5, 6]));
+    assert_eq!(parse_chapter_selection("5,3-4,3", 10), Some(vec![2, 3, 4]));
 
     // Whole input rejected on any bad part
     assert_eq!(parse_chapter_selection("", 10), None);
     assert_eq!(parse_chapter_selection("0,5", 10), None);
     assert_eq!(parse_chapter_selection("11", 10), None);
     assert_eq!(parse_chapter_selection("1-11", 10), None);
+    // A typo like "1-999999999" must be rejected by the bounds check before
+    // the range is expanded, not allocate billions of entries first.
+    assert_eq!(parse_chapter_selection("1-999999999", 10), None);
     assert_eq!(parse_chapter_selection("5-3", 10), None);
     assert_eq!(parse_chapter_selection("abc", 10), None);
     assert_eq!(parse_chapter_selection("1-2-3", 10), None);
