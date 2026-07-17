@@ -689,7 +689,10 @@ fn main() -> Result<()> {
     let id = if let Some(ref search_keyword) = args.search {
         interactive_search(&client, &mut stdin, search_keyword)?
     } else {
-        let url = args.url.as_ref().ok_or(AppError::InvalidUrl)?;
+        let url = args
+            .url
+            .as_deref()
+            .expect("clap's required_unless_present guarantees url when search is absent");
         parse_id(url).ok_or(AppError::InvalidUrl)?
     };
 
