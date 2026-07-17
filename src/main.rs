@@ -545,11 +545,21 @@ impl Comic {
         );
         bar.set_message(name.clone());
 
-        self.download_images(&chap, &chapter_dir, &bar, &chapter_url)?;
-        Self::compress_chapter(&chapter_dir, &zip_path)?;
-
-        bar.finish();
-        Ok(true)
+        match self
+            .download_images(&chap, &chapter_dir, &bar, &chapter_url)
+            .and_then(|()| Self::compress_chapter(&chapter_dir, &zip_path))
+        {
+            Ok(()) => {
+                bar.finish();
+                Ok(true)
+            }
+            Err(e) => {
+                // Release the bar's draw state so the caller's error message
+                // prints on its own line instead of over the unfinished bar.
+                bar.abandon();
+                Err(e)
+            }
+        }
     }
 }
 
