@@ -296,7 +296,7 @@ fn test_chapter_parsing_from_real_html() {
 fn test_prompt_for_chapters_valid() {
     let mut input = std::io::Cursor::new("1-3,5\n");
     let chapters_count = 10;
-    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap().collect();
+    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap();
 
     // 1-3 -> 0, 1, 2
     // 5 -> 4
@@ -308,7 +308,7 @@ fn test_prompt_for_chapters_retry_on_invalid() {
     // First input is out of bounds (11 > 10), second is invalid format, third is valid.
     let mut input = std::io::Cursor::new("11\ninvalid\n2,4\n");
     let chapters_count = 10;
-    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap().collect();
+    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap();
 
     assert_eq!(result, vec![1, 3]);
 }
@@ -317,7 +317,7 @@ fn test_prompt_for_chapters_retry_on_invalid() {
 fn test_prompt_for_chapters_dedup_and_sort() {
     let mut input = std::io::Cursor::new("5,3-4,3\n");
     let chapters_count = 10;
-    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap().collect();
+    let result: Vec<usize> = prompt_for_chapters(&mut input, chapters_count).unwrap();
 
     // 5 -> 4
     // 3-4 -> 2, 3
@@ -331,7 +331,7 @@ fn test_prompt_for_chapters_zero_rejected_whole_input() {
     // "0,5" must be rejected as a whole and re-prompted,
     // not silently narrowed down to chapter 5.
     let mut input = std::io::Cursor::new("0,5\n1\n");
-    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap().collect();
+    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap();
 
     assert_eq!(result, vec![0]);
 }
@@ -341,7 +341,7 @@ fn test_prompt_for_chapters_huge_range_rejected_before_expansion() {
     // A typo like "1-999999999" must be rejected by the bounds check before
     // the range is expanded, not allocate billions of entries first.
     let mut input = std::io::Cursor::new("1-999999999\n2\n");
-    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap().collect();
+    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap();
 
     assert_eq!(result, vec![1]);
 }
@@ -349,7 +349,7 @@ fn test_prompt_for_chapters_huge_range_rejected_before_expansion() {
 #[test]
 fn test_prompt_for_chapters_reversed_range_rejected() {
     let mut input = std::io::Cursor::new("5-3\n3-5\n");
-    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap().collect();
+    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap();
 
     assert_eq!(result, vec![2, 3, 4]);
 }
@@ -645,9 +645,7 @@ fn test_json_regex_with_complex_data() {
 fn test_prompt_for_chapters_overlapping_ranges() {
     // Test overlapping ranges - should be deduplicated
     let mut input = std::io::Cursor::new("1-5,3-7\n");
-    let result: Vec<usize> = prompt_for_chapters(&mut input, 10)
-        .unwrap()
-        .collect();
+    let result: Vec<usize> = prompt_for_chapters(&mut input, 10).unwrap();
 
     // Should be: 0,1,2,3,4 + 2,3,4,5,6 = deduplicated to 0,1,2,3,4,5,6
     assert_eq!(result, vec![0, 1, 2, 3, 4, 5, 6]);

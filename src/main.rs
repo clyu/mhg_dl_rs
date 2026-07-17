@@ -626,11 +626,11 @@ fn parse_chapter_selection(input: &str, chapters_count: usize) -> Option<Vec<usi
     Some(indices)
 }
 
-fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
+fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<Vec<usize>> {
     loop {
         let input = prompt_line(reader, "Select chapters (e.g. 1-3,5): ")?;
         match parse_chapter_selection(&input, chapters_count) {
-            Some(indices) => return Ok(indices.into_iter()),
+            Some(indices) => return Ok(indices),
             None => {
                 eprintln!(
                     "Invalid selection. Please enter numbers between 1 and {} (e.g. 1-3,5).",
@@ -713,9 +713,9 @@ fn main() -> Result<()> {
         println!("  {}: {}", i + 1, chapter.name);
     }
 
-    let mut ranges = prompt_for_chapters(&mut stdin, comic.chapters.len())?.peekable();
+    let indices = prompt_for_chapters(&mut stdin, comic.chapters.len())?;
 
-    while let Some(idx) = ranges.next() {
+    for (k, &idx) in indices.iter().enumerate() {
         let downloaded = match comic.download_chapter(idx) {
             Ok(d) => d,
             Err(e) => {
@@ -723,7 +723,7 @@ fn main() -> Result<()> {
                 true // Sleep on error to avoid rapid retries if there's a connection issue
             }
         };
-        if downloaded && ranges.peek().is_some() {
+        if downloaded && k + 1 < indices.len() {
             thread::sleep(Duration::from_secs(5));
         }
     }
