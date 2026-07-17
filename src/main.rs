@@ -238,24 +238,34 @@ fn decode_lz_base64(data: &str, what: &str) -> Result<String> {
 fn build_client() -> Result<Client> {
     let mut headers = HeaderMap::new();
     for (key, value) in &[
-        ("accept", "image/webp,image/apng,image/*,*/*;q=0.8"),
+        ("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
         ("accept-encoding", "gzip, deflate, br"),
-        ("accept-language", "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,zh-CN;q=0.6"),
+        ("accept-language", "zh-TW;q=0.8,en-US,en;q=0.5,zh;q=0.3"),
         ("cache-control", "no-cache"),
+        ("dnt", "1"),
         ("pragma", "no-cache"),
+        ("priority", "u=0, i"),
         ("sec-fetch-dest", "document"),
         ("sec-fetch-mode", "navigate"),
         ("sec-fetch-site", "same-origin"),
-        ("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.129 Safari/537.36"),
+        ("sec-gpc", "1"),
+        ("user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"),
     ] {
         headers.insert(*key, value.parse()?);
     }
-    headers.insert("referer", format!("{}/", HOST).parse()?);
     Ok(Client::builder().default_headers(headers).build()?)
 }
 
-fn fetch_html(client: &Client, url: &str) -> Result<String> {
-    Ok(client.get(url).send()?.error_for_status()?.text()?)
+fn fetch_html(client: &Client, url: &str, referer: &str) -> Result<String> {
+    Ok(client
+        .get(url)
+        .header("cookie", "country=TW")
+        .header("referer", referer)
+        .header("sec-fetch-user", "?1")
+        .header("upgrade-insecure-requests", "1")
+        .send()?
+        .error_for_status()?
+        .text()?)
 }
 
 /// Wait for a single key press in raw mode. Returns `Ok(true)` for SPACE and
@@ -379,7 +389,7 @@ impl Comic {
         output_dir: String,
     ) -> Result<Self> {
         let host = String::from(HOST);
-        let res = fetch_html(&client, &format!("{}/comic/{}", host, id))?;
+        let res = fetch_html(&client, &format!("{}/comic/{}", host, id), &format!("{}/", host))?;
         let (title, chapters) = Self::parse_comic_html(&res)?;
         let book_safe = sanitize(&title).into_owned();
         let book_dir = PathBuf::from(output_dir).join(&book_safe);
@@ -427,7 +437,7 @@ impl Comic {
     }
 
     fn get_chapter(&self, url: &str) -> Result<ChapterStruct> {
-        let text = fetch_html(&self.client, url)?;
+        let text = fetch_html(&self.client, url, &format!("{}/", self.host))?;
         Self::parse_chapter_html(&text)
     }
 
@@ -469,6 +479,8 @@ impl Comic {
             let mut resp = self
                 .client
                 .get(&url)
+                .header("accept", "image/webp,image/apng,image/*,*/*;q=0.8")
+                .header("priority", "u=4")
                 .header("referer", chapter_url)
                 .header("sec-fetch-dest", "image")
                 .header("sec-fetch-mode", "no-cors")
@@ -649,12 +661,15 @@ fn interactive_search<R: io::BufRead>(
     keyword: &str,
 ) -> Result<usize> {
     let mut all_results: Vec<SearchResult> = Vec::new();
+    let mut referer = format!("{}/", HOST);
     let mut next_url = Some(format!("{}/s/{}.html", HOST, urlencoding::encode(keyword)));
 
     println!("Search results for '{}':", keyword);
 
     while let Some(url) = next_url {
-        let (page_results, maybe_next) = parse_search_results(&fetch_html(client, &url)?)?;
+        let (page_results, maybe_next) =
+            parse_search_results(&fetch_html(client, &url, &referer)?)?;
+        referer = url;
         let offset = all_results.len();
         for (i, r) in page_results.iter().enumerate() {
             println!("{}. {}", offset + i + 1, r.title);
