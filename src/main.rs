@@ -512,6 +512,9 @@ impl Comic {
     fn download_chapter(&self, index: usize) -> Result<bool> {
         let Chapter { name, href, .. } = &self.chapters[index];
         let chap_safe = sanitize(name);
+        // Chapter names are unique across the whole comic on manhuagui (the
+        // same name never appears in two groups), so `group` is intentionally
+        // not part of the file name and name collisions are not a concern.
         let zip_path = self
             .book_dir
             .join(format!("{}_{}.cbz", self.book_safe, chap_safe));
