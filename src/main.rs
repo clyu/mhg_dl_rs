@@ -28,7 +28,7 @@ const HOST: &str = "https://tw.manhuagui.com";
 const TUNNEL_CHANNELS: [&str; 3] = ["i", "eu", "us"];
 
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:https?://(?:[\w\.]+\.)?manhuagui\.com/comic/)?(\d+)\b").unwrap()
+    Regex::new(r"^(?:(?:https?://(?:[\w\.]+\.)?manhuagui\.com)?/comic/)?(\d+)\b").unwrap()
 });
 static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\w+\b").unwrap());
 static RE_JSON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\((\{.*?\})\)").unwrap());
@@ -96,6 +96,8 @@ struct Args {
     output_dir: String,
 }
 
+/// Extract a comic ID from a bare number, an absolute manhuagui comic URL,
+/// or a site-relative path like `/comic/12345/` (as found in search results).
 fn parse_id(s: &str) -> Option<usize> {
     RE_ID.captures(s)
         .and_then(|c| c.get(1))
@@ -290,12 +292,7 @@ fn wait_for_space() -> Result<bool> {
 
 fn search_result_from_item(li: scraper::ElementRef<'_>) -> Option<SearchResult> {
     let link = li.select(&SEL_LINK).next()?;
-    let href = link.value().attr("href")?;
-    let comic_id = href
-        .split('/')
-        .find(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))?
-        .parse()
-        .ok()?;
+    let comic_id = parse_id(link.value().attr("href")?)?;
     let title = link.value().attr("title")?;
     Some(SearchResult {
         title: title.to_string(),

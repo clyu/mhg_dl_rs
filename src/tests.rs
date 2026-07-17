@@ -26,6 +26,11 @@ fn test_parse_id() {
     // Test full chapter URL (extra path segments after the ID are fine)
     assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345/67890.html"), Some(12345));
 
+    // Test site-relative paths as found in search result hrefs
+    assert_eq!(parse_id("/comic/54544/"), Some(54544));
+    assert_eq!(parse_id("/comic/54544"), Some(54544));
+    assert_eq!(parse_id("/other/54544/"), None);
+
     // Test invalid inputs
     assert_eq!(parse_id("https://google.com/comic/12345"), None);
     assert_eq!(parse_id("abcde"), None);
