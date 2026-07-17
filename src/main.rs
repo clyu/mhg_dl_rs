@@ -63,8 +63,6 @@ enum AppError {
     Reqwest(#[from] reqwest::Error),
     #[error("Invalid HTTP header: {0}")]
     InvalidHeader(#[from] InvalidHeaderValue),
-    #[error("Chapter selection parsing error: {0}")]
-    RangeParse(#[from] range_parser::RangeError),
     #[error("JSON parsing error: {0}")]
     SerdeJson(#[from] serde_json::Error),
     #[error("Integer parsing error: {0}")]
@@ -573,34 +571,42 @@ fn prompt_for_comic_selection<R: io::BufRead>(reader: &mut R, comics_count: usiz
     }
 }
 
+/// Parse a 1-based chapter selection like "1-3,5" into sorted, deduped
+/// 0-based indices. Each range's bounds are validated before it is expanded,
+/// so a typo like "1-999999999" is rejected up front instead of allocating
+/// billions of entries. Returns `None` on any syntax or bounds error; the
+/// whole input is rejected rather than silently dropping the bad part.
+fn parse_chapter_selection(input: &str, chapters_count: usize) -> Option<Vec<usize>> {
+    let mut indices: Vec<usize> = Vec::new();
+    for part in input.split(',') {
+        let part = part.trim();
+        let (start, end) = match part.split_once('-') {
+            Some((a, b)) => (a.trim().parse().ok()?, b.trim().parse::<usize>().ok()?),
+            None => {
+                let n = part.parse().ok()?;
+                (n, n)
+            }
+        };
+        if start == 0 || start > end || end > chapters_count {
+            return None;
+        }
+        indices.extend(start - 1..end);
+    }
+    indices.sort_unstable();
+    indices.dedup();
+    Some(indices)
+}
+
 fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<impl Iterator<Item = usize>> {
     loop {
         let input = prompt_line(reader, "Select chapters (e.g. 1-3,5): ")?;
-        match range_parser::parse(&input) {
-            Ok(parsed_ranges) => {
-                // The user enters 1-based chapter numbers; reject the whole input if
-                // any of them is out of range instead of silently dropping it.
-                if parsed_ranges.is_empty()
-                    || parsed_ranges
-                        .iter()
-                        .any(|&n: &u32| n == 0 || n as usize > chapters_count)
-                {
-                    eprintln!("Invalid chapter selection. Please enter numbers between 1 and {}.", chapters_count);
-                    continue;
-                }
-
-                // Convert to 0-based indices.
-                let mut indices: Vec<usize> = parsed_ranges
-                    .into_iter()
-                    .map(|n| n as usize - 1)
-                    .collect();
-                indices.sort();
-                indices.dedup();
-
-                return Ok(indices.into_iter());
-            }
-            Err(_) => {
-                eprintln!("Invalid input format. Please enter again.");
+        match parse_chapter_selection(&input, chapters_count) {
+            Some(indices) => return Ok(indices.into_iter()),
+            None => {
+                eprintln!(
+                    "Invalid selection. Please enter numbers between 1 and {} (e.g. 1-3,5).",
+                    chapters_count
+                );
             }
         }
     }
