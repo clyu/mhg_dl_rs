@@ -209,7 +209,15 @@ fn unpack_packed(
     let caps = RE_JSON.captures(&js).ok_or_else(|| {
         AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
     })?;
-    Ok(serde_json::from_str(&caps[1])?)
+    let chapter: ChapterStruct = serde_json::from_str(&caps[1])?;
+    // A chapter with no images would produce an empty .cbz that marks the
+    // chapter as done forever; fail here so the user sees an error instead.
+    if chapter.files.is_empty() {
+        return Err(AppError::ContentParsing(
+            "Chapter data contains no image files".to_string(),
+        ));
+    }
+    Ok(chapter)
 }
 
 /// Replace characters that are invalid in file names with `_`.

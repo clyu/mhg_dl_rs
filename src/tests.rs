@@ -145,6 +145,25 @@ fn test_unpack_packed_with_empty_strings_in_data() {
     }
 }
 
+#[test]
+fn test_unpack_packed_empty_files_is_error() {
+    // Same shape as test_unpack_packed, but the files array is empty: this
+    // must be an error, not an empty chapter that would compress into an
+    // empty .cbz and be treated as already downloaded forever.
+    let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[]})";
+    let data = vec!["sl", "e", "m", "path", "files"];
+
+    let result = unpack_packed(frame, 10, 5, &data);
+
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("no image files"),
+        "Error message was: {}",
+        err_msg
+    );
+}
+
 // ==============================================================================
 // Integration Tests: Real HTML Data from test_data/
 // ==============================================================================
