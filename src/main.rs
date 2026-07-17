@@ -1,6 +1,6 @@
 use clap::Parser;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     terminal,
 };
 use indicatif::{ProgressBar, ProgressStyle};
@@ -55,6 +55,8 @@ static SEL_CHAPTER_LIST: LazyLock<Selector> =
 enum AppError {
     #[error("Invalid manhuagui URL or ID")]
     InvalidUrl,
+    #[error("Interrupted by Ctrl+C")]
+    Interrupted,
     #[error("Content parsing error: {0}")]
     ContentParsing(String),
     #[error("I/O error: {0}")]
@@ -254,22 +256,31 @@ fn fetch_html(client: &Client, url: &str) -> Result<String> {
     Ok(client.get(url).send()?.error_for_status()?.text()?)
 }
 
-fn wait_for_space() -> bool {
+/// Wait for a single key press in raw mode. Returns `Ok(true)` for SPACE and
+/// `Ok(false)` for any other key. Raw mode swallows Ctrl+C instead of raising
+/// SIGINT, so it is detected here and reported as `AppError::Interrupted`.
+fn wait_for_space() -> Result<bool> {
     if terminal::enable_raw_mode().is_err() {
-        return false;
+        return Ok(false);
     }
     let result = loop {
         match event::read() {
             Ok(Event::Key(KeyEvent {
+                code: KeyCode::Char('c' | 'C'),
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
+            })) if modifiers.contains(KeyModifiers::CONTROL) => break Err(AppError::Interrupted),
+            Ok(Event::Key(KeyEvent {
                 code: KeyCode::Char(' '),
                 kind: KeyEventKind::Press,
                 ..
-            })) => break true,
+            })) => break Ok(true),
             Ok(Event::Key(KeyEvent {
                 kind: KeyEventKind::Press,
                 ..
-            })) => break false,
-            Err(_) => break false,
+            })) => break Ok(false),
+            Err(_) => break Ok(false),
             _ => {}
         }
     };
@@ -658,7 +669,7 @@ fn interactive_search<R: io::BufRead>(
             io::stdout().flush()?;
             let advance = wait_for_space();
             println!();
-            advance.then(|| format!("{}{}", HOST, path))
+            advance?.then(|| format!("{}{}", HOST, path))
         } else {
             None
         };
