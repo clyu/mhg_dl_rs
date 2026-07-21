@@ -739,14 +739,17 @@ fn main() -> Result<()> {
     let indices = prompt_for_chapters(&mut stdin, comic.chapters.len())?;
 
     for (k, &idx) in indices.iter().enumerate() {
-        let downloaded = match comic.download_chapter(idx) {
-            Ok(d) => d,
+        // Whether to pause before the next chapter: after an actual download,
+        // or after an error (to avoid hammering the server on a connection
+        // issue). A skipped, already-present chapter needs no pause.
+        let should_pause = match comic.download_chapter(idx) {
+            Ok(downloaded) => downloaded,
             Err(e) => {
                 eprintln!("Failed to download chapter {}: {}", idx + 1, e);
-                true // Sleep on error to avoid rapid retries if there's a connection issue
+                true
             }
         };
-        if downloaded && k + 1 < indices.len() {
+        if should_pause && k + 1 < indices.len() {
             thread::sleep(Duration::from_secs(5));
         }
     }
