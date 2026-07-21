@@ -533,7 +533,15 @@ impl Comic {
 
         zip.finish()?;
         fs::rename(&zip_part, zip_path)?;
-        fs::remove_dir_all(&chapter_dir)?;
+        // The .cbz is already in place; failing to clean up the now-redundant
+        // image directory must not report the chapter as failed. Warn instead.
+        if let Err(e) = fs::remove_dir_all(&chapter_dir) {
+            eprintln!(
+                "Warning: failed to remove temporary directory {}: {}",
+                chapter_dir.display(),
+                e
+            );
+        }
         Ok(())
     }
 
