@@ -515,7 +515,7 @@ impl Comic {
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
 
-        let mut files: Vec<PathBuf> = fs::read_dir(&chapter_dir)?
+        let mut files: Vec<PathBuf> = fs::read_dir(chapter_dir)?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
             .filter(|path| path.is_file() && path.extension().map_or(true, |ext| ext != "part"))
@@ -535,7 +535,7 @@ impl Comic {
         fs::rename(&zip_part, zip_path)?;
         // The .cbz is already in place; failing to clean up the now-redundant
         // image directory must not report the chapter as failed. Warn instead.
-        if let Err(e) = fs::remove_dir_all(&chapter_dir) {
+        if let Err(e) = fs::remove_dir_all(chapter_dir) {
             eprintln!(
                 "Warning: failed to remove temporary directory {}: {}",
                 chapter_dir.display(),
