@@ -37,7 +37,7 @@ static RE_JSON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\((\{.*?\})\)").
 static RE_CHAPTER_DATA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'").unwrap());
 static RE_ILLEGAL_CHARS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r##"[\\/:*?"<>|]"##).unwrap());
+    LazyLock::new(|| Regex::new(r##"[\x00-\x1f\x7f\\/:*?"<>|]"##).unwrap());
 
 static SEL_COMICS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("div.book-result ul li.cf").unwrap());
@@ -226,9 +226,19 @@ fn unpack_packed(
     Ok(chapter)
 }
 
-/// Replace characters that are invalid in file names with `_`.
-fn sanitize(s: &str) -> std::borrow::Cow<'_, str> {
-    RE_ILLEGAL_CHARS.replace_all(s, "_")
+/// Make `s` usable as a single path component: replace characters that are
+/// invalid in file names with `_`, then strip surrounding whitespace and
+/// trailing dots. Windows rejects names ending in a dot or a space, and a name
+/// consisting only of dots (`.`, `..`) would otherwise resolve to a directory
+/// outside the intended one. Falls back to `_` when nothing usable is left.
+fn sanitize(s: &str) -> String {
+    let replaced = RE_ILLEGAL_CHARS.replace_all(s, "_");
+    let trimmed = replaced.trim().trim_end_matches(['.', ' ']);
+    if trimmed.is_empty() {
+        "_".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn decode_lz_base64(data: &str, what: &str) -> Result<String> {
@@ -400,7 +410,7 @@ impl Comic {
         let host = String::from(HOST);
         let res = fetch_html(&client, &format!("{}/comic/{}", host, id), &format!("{}/", host))?;
         let (title, chapters) = Self::parse_comic_html(&res)?;
-        let book_safe = sanitize(&title).into_owned();
+        let book_safe = sanitize(&title);
         let book_dir = PathBuf::from(output_dir).join(&book_safe);
         Ok(Comic {
             client,
@@ -419,7 +429,8 @@ impl Comic {
         let title = document
             .select(&SEL_TITLE)
             .next()
-            .map(|e| e.text().collect::<String>())
+            .map(|e| e.text().collect::<String>().trim().to_string())
+            .filter(|t| !t.is_empty())
             .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
 
         let mut chapters = extract_chapters_with_groups(&document)?;
@@ -569,7 +580,7 @@ impl Comic {
         }
         let chapter_url = format!("{}{}", self.host, href);
         let chap = self.get_chapter(&chapter_url)?;
-        let chapter_dir = self.book_dir.join(chap_safe.as_ref());
+        let chapter_dir = self.book_dir.join(&chap_safe);
         fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
         bar.set_style(

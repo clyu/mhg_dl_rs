@@ -204,6 +204,28 @@ fn test_comic_metadata_extraction_no_chapters_is_error() {
 }
 
 #[test]
+fn test_comic_title_is_trimmed_and_must_not_be_blank() {
+    // The h1 is often indented in the page source; untrimmed whitespace would
+    // leak into the book directory name (and a trailing space makes the name
+    // invalid on Windows). A whitespace-only title is treated as a missing one.
+    let html = r#"
+        <html><body>
+            <div class="book-title"><h1>
+                某漫畫
+            </h1></div>
+            <div class="chapter-list"><ul>
+                <li><a href="/comic/1/101.html" title="第01話">第01話</a></li>
+            </ul></div>
+        </body></html>
+    "#;
+    let (title, _) = Comic::parse_comic_html(html).expect("Failed to parse comic HTML");
+    assert_eq!(title, "某漫畫");
+
+    let blank = html.replace("某漫畫", " ");
+    assert!(Comic::parse_comic_html(&blank).is_err());
+}
+
+#[test]
 fn test_extract_chapters_group_from_nearest_h4() {
     // The group must come from the nearest preceding sibling h4, skipping
     // unrelated elements (pager, tip blocks) sitting between the h4 and its
@@ -492,10 +514,12 @@ fn test_illegal_chars_unicode_handling() {
 
 #[test]
 fn test_illegal_chars_windows_forbidden() {
-    // The regex pattern is [\\/:*?"<>|], covering every character Windows
-    // forbids in file names: \, /, :, *, ?, ", <, >, |
+    // The regex covers every character Windows forbids in file names:
+    // \, /, :, *, ?, ", <, >, | plus the C0 control characters and DEL.
     let re = &*RE_ILLEGAL_CHARS;
-    let forbidden_by_regex = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+    let forbidden_by_regex = [
+        '\\', '/', ':', '*', '?', '"', '<', '>', '|', '\0', '\n', '\r', '\t', '\x1f', '\x7f',
+    ];
 
     for ch in &forbidden_by_regex {
         let input = format!("file{}name", ch);
@@ -587,23 +611,49 @@ fn test_directory_traversal_prevention() {
     // Sanitization must strip every path separator so a hostile title or
     // chapter name cannot escape the output directory when joined into a
     // path. "%2f" stays as-is: it is only meaningful to URL decoders and is
-    // harmless literal text in a file name.
-    let re = &*RE_ILLEGAL_CHARS;
-
+    // harmless literal text in a file name. A name made only of dots must not
+    // survive as "." or ".." either, since joining those walks up a level.
     let cases = vec![
         ("../../../etc/passwd", ".._.._.._etc_passwd"),
         ("..\\..\\windows\\system32", ".._.._windows_system32"),
         ("..%2f..%2fetc", "..%2f..%2fetc"),
         ("/etc/passwd", "_etc_passwd"),
         ("\\windows\\system32", "_windows_system32"),
+        ("..", "_"),
+        (".", "_"),
     ];
 
     for (path, expected) in cases {
-        let safe_path = re.replace_all(path, "_").to_string();
+        let safe_path = sanitize(path);
         assert_eq!(safe_path, expected, "Sanitizing: {}", path);
         assert!(!safe_path.contains('/'), "Path: {} still contains /", path);
         assert!(!safe_path.contains('\\'), "Path: {} still contains \\", path);
+        assert_ne!(Path::new(&safe_path).components().count(), 0);
+        assert!(
+            Path::new(&safe_path)
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_))),
+            "Path: {} produced a non-normal component",
+            path
+        );
     }
+}
+
+#[test]
+fn test_sanitize_trims_and_never_returns_empty() {
+    // Windows rejects names ending in a dot or a space, and an empty component
+    // would make book_dir.join(..) point at the parent directory itself —
+    // which compress_chapter would then delete.
+    assert_eq!(sanitize("  第01話  "), "第01話");
+    assert_eq!(sanitize("第01話."), "第01話");
+    assert_eq!(sanitize("第01話 . . "), "第01話");
+    assert_eq!(sanitize(""), "_");
+    assert_eq!(sanitize("   "), "_");
+    assert_eq!(sanitize("..."), "_");
+    // Leading dots are legal in a file name and must be preserved.
+    assert_eq!(sanitize("..foo"), "..foo");
+    // Control characters become underscores rather than corrupting the name.
+    assert_eq!(sanitize("第01話\n\t(完)"), "第01話__(完)");
 }
 
 #[test]
