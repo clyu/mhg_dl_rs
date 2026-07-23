@@ -526,6 +526,10 @@ impl Comic {
             let content_length = resp.content_length();
             let mut out = fs::File::create(&dst_part)?;
             let bytes_written = io::copy(&mut resp, &mut out)?;
+            // Close the handle before renaming: Windows can refuse to move a
+            // file that is still open, and closing here also covers the error
+            // return below.
+            drop(out);
 
             if let Some(expected) = content_length {
                 if bytes_written != expected {
@@ -565,7 +569,9 @@ impl Comic {
             }
         }
 
-        zip.finish()?;
+        // `finish` hands back the underlying file; drop it so the handle is
+        // closed before the rename, for the same reason as in download_images.
+        drop(zip.finish()?);
         fs::rename(&zip_part, zip_path)?;
         // The .cbz is already in place; failing to clean up the now-redundant
         // image directory must not report the chapter as failed. Warn instead.
