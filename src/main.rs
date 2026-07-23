@@ -249,7 +249,7 @@ fn decode_lz_base64(data: &str, what: &str) -> Result<String> {
 
 fn build_client() -> Result<Client> {
     let mut headers = HeaderMap::new();
-    for (key, value) in &[
+    for (key, value) in [
         ("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
         ("accept-encoding", "gzip, deflate, br"),
         ("accept-language", "zh-TW;q=0.8,en-US,en;q=0.5,zh;q=0.3"),
@@ -263,7 +263,7 @@ fn build_client() -> Result<Client> {
         ("sec-gpc", "1"),
         ("user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"),
     ] {
-        headers.insert(*key, value.parse()?);
+        headers.insert(key, value.parse()?);
     }
     // Without timeouts a connection that stalls after the handshake hangs the
     // download forever; the request timeout covers reading the response body,
