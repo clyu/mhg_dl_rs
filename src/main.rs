@@ -26,6 +26,8 @@ use std::sync::LazyLock;
 
 const HOST: &str = "https://tw.manhuagui.com";
 const TUNNEL_CHANNELS: [&str; 3] = ["i", "eu", "us"];
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:(?:https?://(?:[\w\.]+\.)?manhuagui\.com)?/comic/)?(\d+)\b").unwrap()
@@ -253,7 +255,14 @@ fn build_client() -> Result<Client> {
     ] {
         headers.insert(*key, value.parse()?);
     }
-    Ok(Client::builder().default_headers(headers).build()?)
+    // Without timeouts a connection that stalls after the handshake hangs the
+    // download forever; the request timeout covers reading the response body,
+    // which is where image downloads spend their time.
+    Ok(Client::builder()
+        .default_headers(headers)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .build()?)
 }
 
 fn fetch_html(client: &Client, url: &str, referer: &str) -> Result<String> {
