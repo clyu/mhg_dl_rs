@@ -823,27 +823,47 @@ fn test_parse_search_results_last_page() {
 
 #[test]
 fn test_multiple_ul_chapter_ordering() {
-    // Test case for comic_1128.html: 單行本 section has two <ul> elements
-    // ul[0]: volumes 1-22 (reversed: 22→01 in DOM)
-    // ul[1]: volumes 23-112 (reversed: 112→23 in DOM)
-    // After fix, should be ordered: 01→22, 23→112 (continuous 01→112)
+    // comic_1128.html spreads each section over several pager <ul>s, ordered
+    // oldest block first, with the entries inside each <ul> newest first:
+    //   單行本  ul[0] = 第22卷 … 第01卷, ul[1] = 第112卷 … 第23卷
+    //   單話    ul[0..6], 58 + 90 * 5 = 508 entries
+    // Reversing per <ul> while keeping the <ul> order must therefore produce
+    // one continuous ascending run across the pager boundaries.
     let html = load_test_html("comic_1128.html");
     let (title, chapters) = Comic::parse_comic_html(&html).expect("Failed to parse comic HTML");
 
     assert_eq!(title, "ONE PIECE航海王");
 
-    // Find chapters with tag "單行本"
-    let tankoubon_chapters: Vec<_> = chapters
-        .iter()
-        .filter(|c| c.group == "單行本")
-        .collect();
+    let names_in = |group: &str| -> Vec<String> {
+        chapters
+            .iter()
+            .filter(|c| c.group == group)
+            .map(|c| c.name.clone())
+            .collect()
+    };
 
-    // Extract just the chapter names
-    let names: Vec<&str> = tankoubon_chapters.iter().map(|c| c.name.as_str()).collect();
-
-    // Verify sequential ordering: 01→112
-    for i in 0..tankoubon_chapters.len() {
+    // 單行本 is fully sequential, so every position can be checked: 01 → 112.
+    let names = names_in("單行本");
+    assert_eq!(names.len(), 112, "單行本 should span both pager <ul>s");
+    for i in 0..names.len() {
         let expected = format!("第{:02}卷", i + 1);
         assert_eq!(names[i], expected, "Position {} should be {}, got {}", i, expected, names[i]);
     }
+
+    // 單話 names are irregular, so check the six-<ul> section by its ends and
+    // by the entries straddling the first pager boundary (index 57 is the last
+    // of ul[0], index 58 the first of ul[1]).
+    let names = names_in("單話");
+    assert_eq!(names.len(), 508, "單話 should span all six pager <ul>s");
+    assert_eq!(names[0], "第00話前傳");
+    assert_eq!(names[57], "第735回 藤虎的打算");
+    assert_eq!(names[58], "第736回 最高干部迪亞曼蒂");
+    assert_eq!(names[507], "第1185話");
+
+    // The pager itself is a <ul> of "1-22"-style links inside a sibling
+    // div.chapter-page, not inside .chapter-list; it must never be collected.
+    assert!(
+        chapters.iter().all(|c| c.href != "javascript:;"),
+        "pager links leaked into the chapter list"
+    );
 }

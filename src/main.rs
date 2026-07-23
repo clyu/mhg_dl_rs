@@ -367,7 +367,8 @@ fn chapters_from_elements_with_group<'a>(
             })
         })
         .collect::<Result<_>>()?;
-    // The site lists chapters newest-first; reverse into reading order
+    // Entries within one `ul` are listed newest-first; reverse into reading
+    // order. This must stay per-`ul` — see `extract_chapters_with_groups`.
     chapters.reverse();
     Ok(chapters)
 }
@@ -385,6 +386,19 @@ fn group_for_list(list_elem: scraper::ElementRef<'_>) -> String {
         .unwrap_or_else(|| "Chapters".to_string())
 }
 
+/// Collect every chapter, tagged with the section heading it sits under.
+///
+/// A `.chapter-list` holds one `<ul>` per pager page (only the last one is
+/// rendered with `style="display:block"`; the pager swaps between them in the
+/// browser), and the two nesting levels are ordered *differently*: the `ul`s
+/// run oldest block first, while the entries inside each `ul` run newest
+/// first. comic_1128's 單行本 section is
+/// `[ul(第22卷 … 第01卷), ul(第112卷 … 第23卷)]`, so reversing each `ul` on its
+/// own while keeping the `ul` order yields a continuous 第01卷 … 第112卷.
+///
+/// Do not collapse this into a single `ul a` selector and do not hoist the
+/// reverse up to the whole `.chapter-list` — either change silently scrambles
+/// chapter order across pager boundaries.
 fn extract_chapters_with_groups(document: &Html) -> Result<Vec<Chapter>> {
     let mut chapters = Vec::new();
     for list_elem in document.select(&SEL_CHAPTER_LIST) {
