@@ -153,13 +153,13 @@ impl std::fmt::Display for NumOrStr {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct SearchResult {
     title: String,
     comic_id: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Chapter {
     name: String,
     href: String,
