@@ -375,6 +375,15 @@ fn test_prompt_for_comic_selection_eof() {
 }
 
 #[test]
+fn test_prompt_for_comic_selection_retry_on_invalid() {
+    // Both prompts share one retry loop, so the comic side needs its own
+    // coverage: out of bounds high, zero, non-numeric, then a valid pick that
+    // must come back converted from 1-based input to a 0-based index.
+    let mut input = std::io::Cursor::new("6\n0\nabc\n3\n");
+    assert_eq!(prompt_for_comic_selection(&mut input, 5).unwrap(), 2);
+}
+
+#[test]
 fn test_re_word() {
     let re = &*RE_WORD;
 

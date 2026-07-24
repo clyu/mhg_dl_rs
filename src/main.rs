@@ -656,18 +656,36 @@ fn prompt_line<R: io::BufRead>(reader: &mut R, prompt: &str) -> Result<String> {
     Ok(input.trim().to_string())
 }
 
-fn prompt_for_comic_selection<R: io::BufRead>(reader: &mut R, comics_count: usize) -> Result<usize> {
+/// Prompt until `parse` accepts a line. A rejected line prints `error` and
+/// re-prompts; only a closed input stream ends the loop, as an error.
+fn prompt_until_valid<R: io::BufRead, T>(
+    reader: &mut R,
+    prompt: &str,
+    error: &str,
+    parse: impl Fn(&str) -> Option<T>,
+) -> Result<T> {
     loop {
-        let input = prompt_line(reader, "Select a comic (enter number): ")?;
-        match input.parse::<usize>() {
-            Ok(n) if n >= 1 && n <= comics_count => {
-                return Ok(n - 1);
-            }
-            _ => {
-                eprintln!("Invalid selection. Please enter a number between 1 and {}.", comics_count);
-            }
+        let input = prompt_line(reader, prompt)?;
+        if let Some(value) = parse(&input) {
+            return Ok(value);
         }
+        eprintln!("{error}");
     }
+}
+
+fn prompt_for_comic_selection<R: io::BufRead>(reader: &mut R, comics_count: usize) -> Result<usize> {
+    prompt_until_valid(
+        reader,
+        "Select a comic (enter number): ",
+        &format!(
+            "Invalid selection. Please enter a number between 1 and {}.",
+            comics_count
+        ),
+        |input| match input.parse::<usize>() {
+            Ok(n) if (1..=comics_count).contains(&n) => Some(n - 1),
+            _ => None,
+        },
+    )
 }
 
 /// Parse a 1-based chapter selection like "1-3,5" into sorted, deduped
@@ -697,18 +715,15 @@ fn parse_chapter_selection(input: &str, chapters_count: usize) -> Option<Vec<usi
 }
 
 fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<Vec<usize>> {
-    loop {
-        let input = prompt_line(reader, "Select chapters (e.g. 1-3,5): ")?;
-        match parse_chapter_selection(&input, chapters_count) {
-            Some(indices) => return Ok(indices),
-            None => {
-                eprintln!(
-                    "Invalid selection. Please enter numbers between 1 and {} (e.g. 1-3,5).",
-                    chapters_count
-                );
-            }
-        }
-    }
+    prompt_until_valid(
+        reader,
+        "Select chapters (e.g. 1-3,5): ",
+        &format!(
+            "Invalid selection. Please enter numbers between 1 and {} (e.g. 1-3,5).",
+            chapters_count
+        ),
+        |input| parse_chapter_selection(input, chapters_count),
+    )
 }
 
 /// Search for `keyword`, page through the results interactively, and let the
