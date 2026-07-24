@@ -334,7 +334,10 @@ fn search_result_from_item(li: scraper::ElementRef<'_>) -> Option<SearchResult> 
     })
 }
 
-fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>)> {
+/// Extract one page of search hits plus the href of the "next page" pager link,
+/// if the page has one. A page with no recognizable results is not an error
+/// here — `interactive_search` decides that only after the last page.
+fn parse_search_results(html: &str) -> (Vec<SearchResult>, Option<String>) {
     let document = Html::parse_document(html);
 
     let results: Vec<SearchResult> = document
@@ -347,7 +350,7 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
         .and_then(|a| a.value().attr("href"))
         .map(|s| s.to_string());
 
-    Ok((results, next_page))
+    (results, next_page)
 }
 
 fn chapters_from_elements_with_group<'a>(
@@ -741,7 +744,7 @@ fn interactive_search<R: io::BufRead>(
 
     while let Some(url) = next_url {
         let (page_results, maybe_next) =
-            parse_search_results(&fetch_html(client, &url, &referer)?)?;
+            parse_search_results(&fetch_html(client, &url, &referer)?);
         referer = url;
         let offset = all_results.len();
         for (i, r) in page_results.iter().enumerate() {

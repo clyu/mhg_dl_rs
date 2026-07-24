@@ -890,7 +890,7 @@ fn test_sl_e_number_or_string_only() {
 #[test]
 fn test_parse_search_results_page() {
     let html = load_test_html("金田一.html");
-    let (results, next_page) = parse_search_results(&html).unwrap();
+    let (results, next_page) = parse_search_results(&html);
 
     assert_eq!(results.len(), 10);
     assert_eq!(results[0].title, "金田一爸爸事件簿");
@@ -906,7 +906,7 @@ fn test_parse_search_results_page() {
 #[test]
 fn test_parse_search_results_last_page() {
     let html = load_test_html("金田一_p3.html");
-    let (results, next_page) = parse_search_results(&html).unwrap();
+    let (results, next_page) = parse_search_results(&html);
 
     assert!(!results.is_empty());
     assert_eq!(results.len(), 8); // 28 total - 10 (page 1) - 10 (page 2) = 8
