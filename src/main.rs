@@ -432,23 +432,21 @@ fn extract_chapters_with_groups(document: &Html) -> Vec<Chapter> {
 }
 
 impl Comic {
-    fn new(
-        id: usize,
-        client: Client,
-        tunnel: usize,
-        delay_ms: u64,
-        output_dir: String,
-    ) -> Result<Self> {
+    /// Fetch a comic's landing page and build the download context around it.
+    ///
+    /// `id` stays a separate argument rather than being read off `args`: it may
+    /// have come from `--search` instead of the positional URL.
+    fn new(id: usize, client: Client, args: &Args) -> Result<Self> {
         let host = String::from(HOST);
         let res = fetch_html(&client, &format!("{}/comic/{}", host, id), &format!("{}/", host))?;
         let (title, chapters) = Self::parse_comic_html(&res)?;
         let book_safe = sanitize(&title);
-        let book_dir = PathBuf::from(output_dir).join(&book_safe);
+        let book_dir = PathBuf::from(&args.output_dir).join(&book_safe);
         Ok(Comic {
             client,
             host,
-            tunnel: format!("https://{}.hamreus.com", TUNNEL_CHANNELS[tunnel]),
-            delay: Duration::from_millis(delay_ms),
+            tunnel: format!("https://{}.hamreus.com", TUNNEL_CHANNELS[args.tunnel]),
+            delay: Duration::from_millis(args.delay_ms),
             title,
             chapters,
             book_safe,
@@ -791,13 +789,7 @@ fn main() -> Result<()> {
         parse_id(url).ok_or(AppError::InvalidUrl)?
     };
 
-    let comic = Comic::new(
-        id,
-        client,
-        args.tunnel,
-        args.delay_ms,
-        args.output_dir,
-    )?;
+    let comic = Comic::new(id, client, &args)?;
     println!("Title: {}", comic.title);
     let mut last_group = "";
     for (i, chapter) in comic.chapters.iter().enumerate() {
