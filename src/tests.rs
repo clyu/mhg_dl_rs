@@ -473,7 +473,7 @@ fn test_compress_chapter_atomic_and_excludes_part_files() {
 
     let zip_path = test_dir.join("chapter_test.cbz");
 
-    Comic::compress_chapter(&chapter_dir, &zip_path).unwrap();
+    Comic::compress_chapter(&chapter_dir, &["01_page.jpg".to_string()], &zip_path).unwrap();
 
     // The intermediate zip temp file must be renamed away
     assert!(zip_path.exists());
@@ -562,7 +562,7 @@ fn test_illegal_chars_valid_characters_preserved() {
 
 #[test]
 fn test_compress_chapter_file_ordering() {
-    // Test that files are sorted and added to ZIP
+    // Page order comes from the caller's list, never from the directory.
     use tempfile::TempDir;
     use std::fs::File;
 
@@ -572,24 +572,18 @@ fn test_compress_chapter_file_ordering() {
     let chapter_dir = test_dir.join("chapter");
     std::fs::create_dir_all(&chapter_dir).unwrap();
 
-    // Create files with proper naming format (numeric prefix)
-    // Using format like: "01_page.jpg", "02_page.jpg", etc.
-    // This ensures correct numeric ordering with string sort
-    let files_to_create = vec![
-        "01_page.jpg",
-        "02_page.jpg",
-        "03_page.jpg",
-        "10_page.jpg",
-        "20_page.jpg",
-    ];
-    for filename in &files_to_create {
+    let pages: Vec<String> = ["01_page.jpg", "02_page.jpg", "03_page.jpg", "10_page.jpg", "20_page.jpg"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    for filename in &pages {
         std::fs::write(chapter_dir.join(filename), b"image data").unwrap();
     }
 
     let zip_path = test_dir.join("test.cbz");
 
     // Call the actual compress_chapter method
-    Comic::compress_chapter(&chapter_dir, &zip_path).unwrap();
+    Comic::compress_chapter(&chapter_dir, &pages, &zip_path).unwrap();
 
     // Verify zip file was created and directory removed
     assert!(zip_path.exists());
@@ -602,8 +596,65 @@ fn test_compress_chapter_file_ordering() {
     assert_eq!(archive.len(), 5);
     for i in 0..archive.len() {
         let zip_file = archive.by_index(i).unwrap();
-        assert_eq!(zip_file.name(), files_to_create[i], "File at index {} should be {}", i, files_to_create[i]);
+        assert_eq!(zip_file.name(), pages[i], "File at index {} should be {}", i, pages[i]);
     }
+}
+
+#[test]
+fn test_compress_chapter_ignores_stale_files_from_previous_run() {
+    // A chapter that gained pages between runs is re-downloaded under a wider
+    // zero padding, leaving the old narrower names behind. Packing the
+    // directory listing would both duplicate those pages and misplace them,
+    // because '0' sorts before '_': "0_page.jpg" lands after "09_page.jpg".
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let test_dir = temp_dir.path();
+
+    let chapter_dir = test_dir.join("chapter");
+    std::fs::create_dir_all(&chapter_dir).unwrap();
+
+    // Stale single-digit names from the interrupted 9-page run.
+    for i in 0..9 {
+        std::fs::write(chapter_dir.join(format!("{}_page.jpg", i)), b"stale").unwrap();
+    }
+    // The current 12-page run.
+    let pages: Vec<String> = (0..12).map(|i| format!("{:02}_page.jpg", i)).collect();
+    for filename in &pages {
+        std::fs::write(chapter_dir.join(filename), b"fresh").unwrap();
+    }
+
+    let zip_path = test_dir.join("test.cbz");
+    Comic::compress_chapter(&chapter_dir, &pages, &zip_path).unwrap();
+
+    let mut archive =
+        zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+    let names: Vec<String> = (0..archive.len())
+        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert_eq!(names, pages, "stale pages must not leak into the archive");
+}
+
+#[test]
+fn test_compress_chapter_missing_page_is_error() {
+    // A page named in the list but absent from disk must fail loudly: silently
+    // dropping it would publish a .cbz with a hole that is then cached forever.
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let test_dir = temp_dir.path();
+
+    let chapter_dir = test_dir.join("chapter");
+    std::fs::create_dir_all(&chapter_dir).unwrap();
+    std::fs::write(chapter_dir.join("0_page.jpg"), b"image data").unwrap();
+
+    let pages = vec!["0_page.jpg".to_string(), "1_page.jpg".to_string()];
+    let zip_path = test_dir.join("test.cbz");
+
+    assert!(Comic::compress_chapter(&chapter_dir, &pages, &zip_path).is_err());
+    // The chapter must stay unfinished so a later run can retry it.
+    assert!(!zip_path.exists());
+    assert!(chapter_dir.exists());
 }
 
 #[test]
@@ -762,6 +813,8 @@ fn test_download_resume_logic() {
     let result = comic.download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter");
 
     assert!(result.is_ok(), "Should skip existing file and return Ok, but got error");
+    // Skipped pages still have to be reported, or compress_chapter would omit them.
+    assert_eq!(result.unwrap(), vec!["0_test.jpg".to_string()]);
 
     // Verify content remains unchanged and progress bar incremented
     let content = fs::read_to_string(&existing_file).unwrap();

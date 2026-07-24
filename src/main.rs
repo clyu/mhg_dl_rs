@@ -490,9 +490,13 @@ impl Comic {
         unpack_packed(frame, a, c, &data)
     }
 
-    fn download_images(&self, chap: &ChapterStruct, chapter_dir: &Path, bar: &ProgressBar, chapter_url: &str) -> Result<()> {
+    /// Download every page of `chap` into `chapter_dir`, skipping pages that are
+    /// already there. Returns the page file names in reading order, which is what
+    /// `compress_chapter` packs.
+    fn download_images(&self, chap: &ChapterStruct, chapter_dir: &Path, bar: &ProgressBar, chapter_url: &str) -> Result<Vec<String>> {
         let width = chap.files.len().saturating_sub(1).to_string().len();
         let e_str = chap.sl.e.to_string();
+        let mut names = Vec::with_capacity(chap.files.len());
         let mut needs_delay = false;
         for (i, file) in chap.files.iter().enumerate() {
             let url = format!("{}{}{}", self.tunnel, chap.path, file);
@@ -500,6 +504,7 @@ impl Comic {
             let fname = format!("{:0width$}_{}", i, file_safe, width = width);
             let dst = chapter_dir.join(&fname);
             let dst_part = chapter_dir.join(format!("{fname}.part"));
+            names.push(fname);
 
             if dst.exists() {
                 bar.inc(1);
@@ -544,29 +549,30 @@ impl Comic {
             bar.inc(1);
             needs_delay = true;
         }
-        Ok(())
+        Ok(names)
     }
 
-    fn compress_chapter(chapter_dir: &Path, zip_path: &Path) -> Result<()> {
+    /// Pack exactly the pages `download_images` reported, in the order it
+    /// reported them.
+    ///
+    /// The archive contents must come from that list and not from whatever
+    /// `chapter_dir` happens to hold: the zero padding of a page's file name is
+    /// derived from the chapter's total page count, so a chapter that gained
+    /// pages since an interrupted run leaves stale files behind under a
+    /// narrower width (`0_a.webp` next to a new `00_a.webp`). Reading the
+    /// directory and sorting would fold those duplicates in — and sort them
+    /// into the wrong places, since `'0' < '_'` puts `0_a.webp` after
+    /// `09_a.webp` — producing a scrambled .cbz that is then cached forever.
+    fn compress_chapter(chapter_dir: &Path, file_names: &[String], zip_path: &Path) -> Result<()> {
         let zip_part = zip_path.with_extension("cbz.part");
         let zip_file = fs::File::create(&zip_part)?;
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
 
-        let mut files: Vec<PathBuf> = fs::read_dir(chapter_dir)?
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.is_file() && path.extension().map_or(true, |ext| ext != "part"))
-            .collect();
-
-        files.sort();
-
-        for path in files {
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                zip.start_file(name, options)?;
-                let mut file = fs::File::open(&path)?;
-                io::copy(&mut file, &mut zip)?;
-            }
+        for name in file_names {
+            zip.start_file(name.as_str(), options)?;
+            let mut file = fs::File::open(chapter_dir.join(name))?;
+            io::copy(&mut file, &mut zip)?;
         }
 
         // `finish` hands back the underlying file; drop it so the handle is
@@ -615,7 +621,7 @@ impl Comic {
 
         match self
             .download_images(&chap, &chapter_dir, &bar, &chapter_url)
-            .and_then(|()| Self::compress_chapter(&chapter_dir, &zip_path))
+            .and_then(|names| Self::compress_chapter(&chapter_dir, &names, &zip_path))
         {
             Ok(()) => {
                 bar.finish();
