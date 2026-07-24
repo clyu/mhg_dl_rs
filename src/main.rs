@@ -58,6 +58,17 @@ static SEL_VIEWSTATE: LazyLock<Selector> =
 static SEL_CHAPTER_LIST: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(".chapter-list").unwrap());
 
+/// Per-chapter download bar. The template is fixed, so parse it once instead of
+/// re-parsing (and re-`unwrap`ping) it for every chapter.
+static BAR_STYLE: LazyLock<ProgressStyle> = LazyLock::new(|| {
+    ProgressStyle::default_bar()
+        .template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
+        )
+        .unwrap()
+        .progress_chars("#>-")
+});
+
 #[derive(Error, Debug)]
 enum AppError {
     #[error("Invalid manhuagui URL or ID")]
@@ -616,14 +627,7 @@ impl Comic {
         let chapter_dir = self.book_dir.join(&chap_safe);
         fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
-        bar.set_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
-                )
-                .unwrap()
-                .progress_chars("#>-"),
-        );
+        bar.set_style(BAR_STYLE.clone());
         bar.set_message(name.clone());
 
         match self
