@@ -44,7 +44,12 @@ static SEL_COMICS: LazyLock<Selector> =
 static SEL_LINK: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a.bcover").unwrap());
 static SEL_TITLE: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(".book-title h1").unwrap());
-static SEL_CHAP_INNER: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a").unwrap());
+/// A chapter link inside a `.chapter-list`. Both attributes are required by the
+/// selector so that non-chapter anchors — the `<a id="v1" href="javascript:;">`
+/// pager entries that sit in a sibling block today, ad links, "more" links — are
+/// simply not matched, rather than aborting the whole book's parse.
+static SEL_CHAPTER_LINK: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("a[href][title]").unwrap());
 static SEL_UL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("ul").unwrap());
 static SEL_PAGER_LINKS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("div.pager a").unwrap());
@@ -348,29 +353,27 @@ fn parse_search_results(html: &str) -> Result<(Vec<SearchResult>, Option<String>
 fn chapters_from_elements_with_group<'a>(
     elements: impl Iterator<Item = scraper::ElementRef<'a>>,
     group: &str,
-) -> Result<Vec<Chapter>> {
+) -> Vec<Chapter> {
     let mut chapters: Vec<Chapter> = elements
         .map(|element| {
             let attr = |key: &str| {
                 element
                     .value()
                     .attr(key)
-                    .map(str::to_string)
-                    .ok_or_else(|| {
-                        AppError::ContentParsing(format!("Chapter {} attribute not found", key))
-                    })
+                    .expect("SEL_CHAPTER_LINK matches only anchors carrying href and title")
+                    .to_string()
             };
-            Ok(Chapter {
-                name: attr("title")?,
-                href: attr("href")?,
+            Chapter {
+                name: attr("title"),
+                href: attr("href"),
                 group: group.to_string(),
-            })
+            }
         })
-        .collect::<Result<_>>()?;
+        .collect();
     // Entries within one `ul` are listed newest-first; reverse into reading
     // order. This must stay per-`ul` — see `extract_chapters_with_groups`.
     chapters.reverse();
-    Ok(chapters)
+    chapters
 }
 
 /// The section heading of a chapter list is the nearest `h4` among its
@@ -399,18 +402,19 @@ fn group_for_list(list_elem: scraper::ElementRef<'_>) -> String {
 /// Do not collapse this into a single `ul a` selector and do not hoist the
 /// reverse up to the whole `.chapter-list` — either change silently scrambles
 /// chapter order across pager boundaries.
-fn extract_chapters_with_groups(document: &Html) -> Result<Vec<Chapter>> {
+fn extract_chapters_with_groups(document: &Html) -> Vec<Chapter> {
     let mut chapters = Vec::new();
     for list_elem in document.select(&SEL_CHAPTER_LIST) {
         let group = group_for_list(list_elem);
         for ul_elem in list_elem.select(&SEL_UL) {
-            let ul_chaps =
-                chapters_from_elements_with_group(ul_elem.select(&SEL_CHAP_INNER), &group)?;
-            chapters.extend(ul_chaps);
+            chapters.extend(chapters_from_elements_with_group(
+                ul_elem.select(&SEL_CHAPTER_LINK),
+                &group,
+            ));
         }
     }
 
-    Ok(chapters)
+    chapters
 }
 
 impl Comic {
@@ -447,7 +451,7 @@ impl Comic {
             .filter(|t| !t.is_empty())
             .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
 
-        let mut chapters = extract_chapters_with_groups(&document)?;
+        let mut chapters = extract_chapters_with_groups(&document);
 
         if chapters.is_empty() {
             if let Some(vs_val) = document
@@ -457,7 +461,7 @@ impl Comic {
             {
                 let decoded = decode_lz_base64(vs_val, "__VIEWSTATE")?;
                 let inner = Html::parse_fragment(&decoded);
-                chapters = extract_chapters_with_groups(&inner)?;
+                chapters = extract_chapters_with_groups(&inner);
             }
         }
 

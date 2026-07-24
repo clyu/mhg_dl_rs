@@ -243,7 +243,7 @@ fn test_extract_chapters_group_from_nearest_h4() {
         </ul></div>
     "#;
     let document = Html::parse_fragment(html);
-    let chapters = extract_chapters_with_groups(&document).unwrap();
+    let chapters = extract_chapters_with_groups(&document);
     let got: Vec<(&str, &str)> = chapters
         .iter()
         .map(|c| (c.group.as_str(), c.name.as_str()))
@@ -267,9 +267,39 @@ fn test_extract_chapters_group_fallback_without_h4() {
         </ul></div>
     "#;
     let document = Html::parse_fragment(html);
-    let chapters = extract_chapters_with_groups(&document).unwrap();
+    let chapters = extract_chapters_with_groups(&document);
     assert_eq!(chapters.len(), 1);
     assert_eq!(chapters[0].group, "Chapters");
+}
+
+#[test]
+fn test_extract_chapters_skips_non_chapter_anchors() {
+    // Anchors without both href and title are not chapters. They must be
+    // ignored even when they sit inside the chapter-list's own <ul> — a single
+    // pager entry or ad link there used to abort the whole book's parse.
+    let html = r#"
+        <h4><span>單話</span></h4>
+        <div class="chapter-list"><ul>
+            <li><a id="v1" href="javascript:;">1-10</a></li>
+            <li><a href="/comic/1/102.html" title="第02話">第02話</a></li>
+            <li><a title="no href">dead</a></li>
+            <li><a href="/comic/1/101.html" title="第01話">第01話</a></li>
+        </ul></div>
+    "#;
+    let document = Html::parse_fragment(html);
+    let chapters = extract_chapters_with_groups(&document);
+    let got: Vec<(&str, &str)> = chapters
+        .iter()
+        .map(|c| (c.name.as_str(), c.href.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("第01話", "/comic/1/101.html"),
+            ("第02話", "/comic/1/102.html"),
+        ],
+        "only well-formed chapter anchors survive, still in reading order"
+    );
 }
 
 #[test]
