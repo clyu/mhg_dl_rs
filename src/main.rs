@@ -367,32 +367,6 @@ fn parse_search_results(html: &str) -> (Vec<SearchResult>, Option<String>) {
     (results, next_page)
 }
 
-fn chapters_from_elements_with_group<'a>(
-    elements: impl Iterator<Item = scraper::ElementRef<'a>>,
-    group: &str,
-) -> Vec<Chapter> {
-    let mut chapters: Vec<Chapter> = elements
-        .map(|element| {
-            let attr = |key: &str| {
-                element
-                    .value()
-                    .attr(key)
-                    .expect("SEL_CHAPTER_LINK matches only anchors carrying href and title")
-                    .to_string()
-            };
-            Chapter {
-                name: attr("title"),
-                href: attr("href"),
-                group: group.to_string(),
-            }
-        })
-        .collect();
-    // Entries within one `ul` are listed newest-first; reverse into reading
-    // order. This must stay per-`ul` — see `extract_chapters_with_groups`.
-    chapters.reverse();
-    chapters
-}
-
 /// The section heading of a chapter list is the nearest `h4` among its
 /// preceding siblings (other elements like the pager or tip blocks may sit
 /// in between).
@@ -424,10 +398,19 @@ fn extract_chapters_with_groups(document: &Html) -> Vec<Chapter> {
     for list_elem in document.select(&SEL_CHAPTER_LIST) {
         let group = group_for_list(list_elem);
         for ul_elem in list_elem.select(&SEL_UL) {
-            chapters.extend(chapters_from_elements_with_group(
-                ul_elem.select(&SEL_CHAPTER_LINK),
-                &group,
-            ));
+            let start = chapters.len();
+            chapters.extend(ul_elem.select(&SEL_CHAPTER_LINK).filter_map(|element| {
+                let element = element.value();
+                Some(Chapter {
+                    name: element.attr("title")?.to_string(),
+                    href: element.attr("href")?.to_string(),
+                    group: group.clone(),
+                })
+            }));
+            // Entries within one `ul` are listed newest-first; reverse into
+            // reading order. Reversing just this `ul`'s slice is what keeps
+            // the pager blocks in the order described above.
+            chapters[start..].reverse();
         }
     }
 
