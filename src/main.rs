@@ -17,6 +17,7 @@ use std::{
     io::{self, Write},
     num::ParseIntError,
     path::{Path, PathBuf},
+    process::ExitCode,
     thread,
     time::Duration,
 };
@@ -774,7 +775,22 @@ fn interactive_search<R: io::BufRead>(
     Ok(all_results[selected].comic_id)
 }
 
-fn main() -> Result<()> {
+/// `main` deliberately does not return `Result`: the `Termination` impl for
+/// `Result<T, E>` reports the error with `Debug`, which would print
+/// `ContentParsing("No search results")` instead of the `#[error(...)]` text
+/// every `AppError` variant carries. Report `Display` here and hand back a
+/// plain exit code.
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<()> {
     let args = Args::parse();
     let client = build_client()?;
     let mut stdin = io::stdin().lock();
