@@ -209,7 +209,6 @@ fn unpack_packed(
             DIGITS.len()
         )));
     }
-    let mut dmap = std::collections::HashMap::new();
     if c > data.len() {
         return Err(AppError::ContentParsing(format!(
             "Packed script dictionary size mismatch: expected {} words, got {}",
@@ -217,6 +216,9 @@ fn unpack_packed(
             data.len()
         )));
     }
+    // Sized only after the check above, so a bogus `c` from a hostile page
+    // cannot ask for a huge allocation up front.
+    let mut dmap = std::collections::HashMap::with_capacity(c);
     for i in 0..c {
         let key = encode(i, a);
         // An empty dictionary entry maps the word to itself, which is also
@@ -230,7 +232,7 @@ fn unpack_packed(
             let key = caps.get(0).unwrap().as_str();
             dmap.get(key).copied().unwrap_or(key).to_string()
         })
-        .to_string();
+        .into_owned();
     let caps = RE_JSON.captures(&js).ok_or_else(|| {
         AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
     })?;
