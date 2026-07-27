@@ -114,7 +114,7 @@ struct Args {
     delay_ms: u64,
     /// Output directory
     #[clap(short, long, default_value = "Downloads")]
-    output_dir: String,
+    output_dir: PathBuf,
 }
 
 /// Extract a comic ID from a bare number, an absolute manhuagui comic URL,
@@ -429,7 +429,7 @@ impl Comic {
         let res = fetch_html(&client, &format!("{}/comic/{}", host, id), &format!("{}/", host))?;
         let (title, chapters) = Self::parse_comic_html(&res)?;
         let book_safe = sanitize(&title);
-        let book_dir = PathBuf::from(&args.output_dir).join(&book_safe);
+        let book_dir = args.output_dir.join(&book_safe);
         Ok(Comic {
             client,
             host,
