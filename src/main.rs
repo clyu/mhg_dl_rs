@@ -76,6 +76,8 @@ enum AppError {
     InvalidUrl,
     #[error("Interrupted by Ctrl+C")]
     Interrupted,
+    #[error("No comics found for '{0}'")]
+    NoSearchResults(String),
     #[error("Content parsing error: {0}")]
     ContentParsing(String),
     #[error("I/O error: {0}")]
@@ -767,8 +769,7 @@ fn interactive_search<R: io::BufRead>(
     }
 
     if all_results.is_empty() {
-        eprintln!("No comics found for '{}'", keyword);
-        return Err(AppError::ContentParsing("No search results".to_string()));
+        return Err(AppError::NoSearchResults(keyword.to_string()));
     }
 
     let selected = prompt_for_comic_selection(reader, all_results.len())?;
@@ -777,9 +778,9 @@ fn interactive_search<R: io::BufRead>(
 
 /// `main` deliberately does not return `Result`: the `Termination` impl for
 /// `Result<T, E>` reports the error with `Debug`, which would print
-/// `ContentParsing("No search results")` instead of the `#[error(...)]` text
-/// every `AppError` variant carries. Report `Display` here and hand back a
-/// plain exit code.
+/// `NoSearchResults("金田一")` instead of the `#[error(...)]` text every
+/// `AppError` variant carries. Report `Display` here and hand back a plain
+/// exit code — this is the only place a user-facing error is printed.
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
