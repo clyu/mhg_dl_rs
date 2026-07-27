@@ -468,15 +468,19 @@ impl Comic {
 
         let mut chapters = extract_chapters_with_groups(&document);
 
+        // A gated page ships the real chapter list in the __VIEWSTATE blob.
+        // A decode failure must not abort the parse: the input may be an
+        // unrelated ASP.NET view state that merely happens to use that id, and
+        // the "no chapters" error below describes the situation far better
+        // than a decoder complaint would.
         if chapters.is_empty() {
-            if let Some(vs_val) = document
+            if let Some(decoded) = document
                 .select(&SEL_VIEWSTATE)
                 .next()
                 .and_then(|e| e.value().attr("value"))
+                .and_then(|vs_val| decode_lz_base64(vs_val, "__VIEWSTATE").ok())
             {
-                let decoded = decode_lz_base64(vs_val, "__VIEWSTATE")?;
-                let inner = Html::parse_fragment(&decoded);
-                chapters = extract_chapters_with_groups(&inner);
+                chapters = extract_chapters_with_groups(&Html::parse_fragment(&decoded));
             }
         }
 
