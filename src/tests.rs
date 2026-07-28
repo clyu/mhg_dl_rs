@@ -914,6 +914,48 @@ fn test_parse_search_results_last_page() {
 }
 
 #[test]
+fn test_resolve_url_percent_encodes_pager_hrefs() {
+    // The pager on a real search page emits site-relative hrefs with raw UTF-8
+    // in them (see the div.pager block in 金田一.html). They must come back out
+    // as ASCII: the resolved URL is reused as the `referer` header of the
+    // following request, and header values may not carry non-ASCII bytes.
+    let url = resolve_url("/s/金田一_p2.html").unwrap();
+    assert_eq!(
+        url.as_str(),
+        "https://tw.manhuagui.com/s/%E9%87%91%E7%94%B0%E4%B8%80_p2.html"
+    );
+    assert!(url.as_str().is_ascii());
+}
+
+#[test]
+fn test_resolve_url_leaves_encoded_and_absolute_hrefs_alone() {
+    // An already-encoded href must not be double-encoded ('%' is path-safe)...
+    assert_eq!(
+        resolve_url("/s/%E9%87%91.html").unwrap().as_str(),
+        "https://tw.manhuagui.com/s/%E9%87%91.html"
+    );
+    // ...and an absolute href must replace the base rather than be appended to
+    // it, which is what plain string concatenation used to do.
+    assert_eq!(
+        resolve_url("https://tw.manhuagui.com/s/x_p2.html")
+            .unwrap()
+            .as_str(),
+        "https://tw.manhuagui.com/s/x_p2.html"
+    );
+}
+
+#[test]
+fn test_resolve_url_matches_the_next_page_href_from_real_html() {
+    // End to end over the real markup: the href parse_search_results hands back
+    // has to survive resolution into an ASCII URL.
+    let html = load_test_html("金田一.html");
+    let (_, next_page) = parse_search_results(&html);
+    let url = resolve_url(&next_page.expect("page 1 has a next-page link")).unwrap();
+    assert!(url.as_str().is_ascii(), "got {}", url);
+    assert!(url.as_str().contains("_p2"));
+}
+
+#[test]
 fn test_multiple_ul_chapter_ordering() {
     // comic_1128.html spreads each section over several pager <ul>s, ordered
     // oldest block first, with the entries inside each <ul> newest first:

@@ -7,6 +7,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::{
     blocking::Client,
     header::{HeaderMap, InvalidHeaderValue},
+    Url,
 };
 use scraper::{Html, Selector};
 use serde::Deserialize;
@@ -29,6 +30,12 @@ const HOST: &str = "https://tw.manhuagui.com";
 const TUNNEL_CHANNELS: [&str; 3] = ["i", "eu", "us"];
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// `HOST` parsed once, as the base every site-relative link is resolved against.
+/// Parsing also normalizes it to a trailing slash, which is what the site root
+/// referer needs to be.
+static HOST_URL: LazyLock<Url> =
+    LazyLock::new(|| Url::parse(HOST).expect("HOST is a valid absolute URL"));
 
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:(?:https?://(?:[\w\.]+\.)?manhuagui\.com)?/comic/)?(\d+)\b").unwrap()
@@ -294,6 +301,19 @@ fn build_client() -> Result<Client> {
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
         .build()?)
+}
+
+/// Resolve a link taken off a page against the site root.
+///
+/// The search pager emits site-relative hrefs that still carry raw UTF-8, e.g.
+/// `/s/金田一_p2.html`. Joining percent-encodes them, which matters twice over:
+/// the resolved URL is requested, and on the next iteration it is handed back as
+/// the `referer` header, where non-ASCII bytes have no business being. Joining
+/// also keeps an absolute href working instead of concatenating it onto `HOST`.
+fn resolve_url(href: &str) -> Result<Url> {
+    HOST_URL
+        .join(href)
+        .map_err(|e| AppError::ContentParsing(format!("Invalid URL '{href}': {e}")))
 }
 
 fn fetch_html(client: &Client, url: &str, referer: &str) -> Result<String> {
@@ -731,14 +751,17 @@ fn interactive_search<R: io::BufRead>(
     keyword: &str,
 ) -> Result<usize> {
     let mut all_results: Vec<SearchResult> = Vec::new();
-    let mut referer = format!("{}/", HOST);
-    let mut next_url = Some(format!("{}/s/{}.html", HOST, urlencoding::encode(keyword)));
+    let mut referer = HOST_URL.clone();
+    let mut next_url = Some(resolve_url(&format!(
+        "/s/{}.html",
+        urlencoding::encode(keyword)
+    ))?);
 
     println!("Search results for '{}':", keyword);
 
     while let Some(url) = next_url {
         let (page_results, maybe_next) =
-            parse_search_results(&fetch_html(client, &url, &referer)?);
+            parse_search_results(&fetch_html(client, url.as_str(), referer.as_str())?);
         referer = url;
         let offset = all_results.len();
         for (i, r) in page_results.iter().enumerate() {
@@ -746,14 +769,19 @@ fn interactive_search<R: io::BufRead>(
         }
         all_results.extend(page_results);
 
-        next_url = if let Some(path) = maybe_next {
-            print!("--- Press SPACE for next page, any other key to stop ---");
-            io::stdout().flush()?;
-            let advance = wait_for_space();
-            println!();
-            advance?.then(|| format!("{}{}", HOST, path))
-        } else {
-            None
+        next_url = match maybe_next {
+            Some(href) => {
+                print!("--- Press SPACE for next page, any other key to stop ---");
+                io::stdout().flush()?;
+                let advance = wait_for_space();
+                println!();
+                if advance? {
+                    Some(resolve_url(&href)?)
+                } else {
+                    None
+                }
+            }
+            None => None,
         };
     }
 
