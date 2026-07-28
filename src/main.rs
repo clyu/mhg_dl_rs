@@ -227,11 +227,11 @@ fn unpack_packed(
     // cannot ask for a huge allocation up front.
     let mut dmap = std::collections::HashMap::with_capacity(c);
     for i in 0..c {
-        let key = encode(i, a);
         // An empty dictionary entry maps the word to itself, which is also
-        // what the replacement below does for unknown words — skip it.
+        // what the replacement below does for unknown words — skip it before
+        // paying for the `encode` allocation.
         if !data[i].is_empty() {
-            dmap.insert(key, data[i]);
+            dmap.insert(encode(i, a), data[i]);
         }
     }
     let js = RE_WORD
