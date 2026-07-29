@@ -127,9 +127,7 @@ struct Args {
 /// Extract a comic ID from a bare number, an absolute manhuagui comic URL,
 /// or a site-relative path like `/comic/12345/` (as found in search results).
 fn parse_id(s: &str) -> Option<usize> {
-    RE_ID.captures(s)
-        .and_then(|c| c.get(1))
-        .and_then(|m| m.as_str().parse().ok())
+    RE_ID.captures(s).and_then(|c| c[1].parse().ok())
 }
 
 #[derive(Deserialize, Debug)]
