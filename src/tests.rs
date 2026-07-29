@@ -94,15 +94,17 @@ fn test_unpack_packed_invalid_base() {
 #[test]
 fn test_unpack_packed_base_too_small() {
     let frame = "{}";
-    let c = 1;
-    let data = vec!["dummy"];
+    // Two dictionary entries, so `encode` is reached with a non-zero value:
+    // `encode(0, _)` returns early and would exercise neither failure below.
+    let c = 2;
+    let data = vec!["dummy", "dummy2"];
 
-    // Base 0 would panic via divide-by-zero without the up-front guard.
+    // encode(1, 0) would panic via divide-by-zero without the up-front guard.
     let result = unpack_packed(frame, 0, c, &data);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("out of supported range"));
 
-    // Base 1 would hang forever (value /= 1 never terminates) without the guard.
+    // encode(1, 1) would hang forever (value /= 1 never terminates) without the guard.
     let result = unpack_packed(frame, 1, c, &data);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("out of supported range"));
@@ -155,8 +157,9 @@ fn test_comic_metadata_extraction_from_real_html() {
 
     // Verify chapters
     assert!(chapters.len() > 0, "Should find at least one chapter");
-    // After grouped extraction and sorting, the order is:單話(第01話...) -> 單行本(...) -> 番外篇(...)
-    // The first chapter should be "第01話"
+    // Nothing is sorted: sections keep their document order (單話 -> 單行本 ->
+    // 番外篇 in this page) and only the entries within each <ul> are reversed
+    // into reading order, so the very first chapter is 單話's oldest one.
     assert_eq!(chapters[0].name, "第01話");
     assert!(chapters[0].href.contains("/comic/40811/"));
 
@@ -274,11 +277,20 @@ fn test_extract_chapters_group_fallback_without_h4() {
 
 #[test]
 fn test_extract_chapters_skips_non_chapter_anchors() {
-    // Anchors without both href and title are not chapters. They must be
-    // ignored even when they sit inside the chapter-list's own <ul> — a single
-    // pager entry or ad link there used to abort the whole book's parse.
+    // Two separate filters keep non-chapters out, and they cover different
+    // cases:
+    //   * The real pager (div.chapter-page, see comic_1128.html) is a <ul> of
+    //     anchors that carry *both* href and title, so only the .chapter-list
+    //     scoping excludes it — the selector alone would happily match it.
+    //   * Anchors missing either attribute — an ad or a "more" link inside the
+    //     list's own <ul> — are dropped by the selector instead of aborting the
+    //     whole book's parse.
     let html = r#"
         <h4><span>單話</span></h4>
+        <div class="chapter-page"><ul>
+            <li><a href="javascript:;" title="1-10">1-10<i></i></a></li>
+            <li class="on"><a href="javascript:;" title="11-20">11-20<i></i></a></li>
+        </ul></div>
         <div class="chapter-list"><ul>
             <li><a id="v1" href="javascript:;">1-10</a></li>
             <li><a href="/comic/1/102.html" title="第02話">第02話</a></li>
@@ -311,8 +323,9 @@ fn test_chapter_parsing_from_real_html() {
     assert!(!chapter.path.is_empty());
     assert!(!chapter.files.is_empty());
 
-    // Check specific known values for this test file: file count
-    assert_eq!(chapter.files.len(), 48); // Verified from HTML content "(1/48)"
+    // Check specific known values for this test file: file count. 48 is the
+    // length of the files array in this page's packed chapter data.
+    assert_eq!(chapter.files.len(), 48);
 }
 
 
@@ -601,7 +614,10 @@ fn test_illegal_chars_valid_characters_preserved() {
 
 #[test]
 fn test_compress_chapter_file_ordering() {
-    // Page order comes from the caller's list, never from the directory.
+    // Page order comes from the caller's list, never from the directory. The
+    // list below is deliberately in neither ascending nor descending name
+    // order: a list that happened to be sorted would be reproduced by a
+    // directory listing too, and the test would prove nothing.
     use tempfile::TempDir;
     use std::fs::File;
 
@@ -611,7 +627,7 @@ fn test_compress_chapter_file_ordering() {
     let chapter_dir = test_dir.join("chapter");
     std::fs::create_dir_all(&chapter_dir).unwrap();
 
-    let pages: Vec<String> = ["01_page.jpg", "02_page.jpg", "03_page.jpg", "10_page.jpg", "20_page.jpg"]
+    let pages: Vec<String> = ["20_page.jpg", "01_page.jpg", "10_page.jpg", "03_page.jpg", "02_page.jpg"]
         .iter()
         .map(|s| s.to_string())
         .collect();
