@@ -632,8 +632,8 @@ impl Comic {
             println!("{} already exists, skipping.", zip_path.display());
             return Ok(false);
         }
-        let chapter_url = format!("{}{}", self.host, href);
-        let chap = self.get_chapter(&chapter_url)?;
+        let chapter_url = resolve_url(href)?;
+        let chap = self.get_chapter(chapter_url.as_str())?;
         let chapter_dir = self.book_dir.join(&chap_safe);
         fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
@@ -641,7 +641,7 @@ impl Comic {
         bar.set_message(name.clone());
 
         match self
-            .download_images(&chap, &chapter_dir, &bar, &chapter_url)
+            .download_images(&chap, &chapter_dir, &bar, chapter_url.as_str())
             .and_then(|names| Self::compress_chapter(&chapter_dir, &names, &zip_path))
         {
             Ok(()) => {
