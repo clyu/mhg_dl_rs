@@ -37,6 +37,18 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 static HOST_URL: LazyLock<Url> =
     LazyLock::new(|| Url::parse(HOST).expect("HOST is a valid absolute URL"));
 
+/// `--tunnel` help text, generated from `TUNNEL_CHANNELS` so the option's
+/// documentation cannot drift when the channel list changes.
+static TUNNEL_HELP: LazyLock<String> = LazyLock::new(|| {
+    let channels = TUNNEL_CHANNELS
+        .iter()
+        .enumerate()
+        .map(|(i, c)| format!("{i}={c}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("Tunnel line: {channels}")
+});
+
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:(?:https?://(?:[\w\.]+\.)?manhuagui\.com)?/comic/)?(\d+)\b").unwrap()
 });
@@ -113,8 +125,7 @@ struct Args {
     /// Search keyword for comics
     #[clap(short, long)]
     search: Option<String>,
-    /// Tunnel line: 0=i,1=eu,2=us
-    #[clap(short, long, default_value_t = 0, value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(..TUNNEL_CHANNELS.len() as u64))]
+    #[clap(short, long, default_value_t = 0, help = TUNNEL_HELP.as_str(), value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(..TUNNEL_CHANNELS.len() as u64))]
     tunnel: usize,
     /// Delay between pages in milliseconds
     #[clap(short, long, default_value_t = 1000)]
