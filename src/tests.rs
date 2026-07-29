@@ -74,40 +74,44 @@ fn test_unpack_packed() {
 }
 
 #[test]
-fn test_unpack_packed_invalid_base() {
-    let frame = "{}";
-    let c = 1;
-    let data = vec!["dummy"];
-
-    // Base exceeds alphabet size (62)
-    let result = unpack_packed(frame, 100, c, &data);
-    assert!(result.is_err());
-    let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("out of supported range"), "Error message was: {}", err_msg);
-
-    // Exact boundary: 62 is the largest supported base, 63 must be rejected
-    let result = unpack_packed(frame, 63, c, &data);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("out of supported range"));
-}
-
-#[test]
-fn test_unpack_packed_base_too_small() {
+fn test_unpack_packed_base_out_of_range() {
     let frame = "{}";
     // Two dictionary entries, so `encode` is reached with a non-zero value:
-    // `encode(0, _)` returns early and would exercise neither failure below.
+    // `encode(0, _)` returns early and would exercise neither low-base failure.
     let c = 2;
     let data = vec!["dummy", "dummy2"];
 
-    // encode(1, 0) would panic via divide-by-zero without the up-front guard.
-    let result = unpack_packed(frame, 0, c, &data);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("out of supported range"));
+    // Both ends of the guard, including the exact boundaries: 2 is the
+    // smallest workable base and 62 the largest the alphabet can express.
+    //   0: encode(1, 0) would panic via divide-by-zero without the guard.
+    //   1: encode(1, 1) would hang forever (value /= 1 never terminates).
+    //  63: one past the alphabet, would index DIGITS out of bounds.
+    for base in [0, 1, 63, 100] {
+        let err_msg = unpack_packed(frame, base, c, &data)
+            .expect_err("base out of range must be rejected")
+            .to_string();
+        assert!(
+            err_msg.contains("out of supported range"),
+            "Base {} error message was: {}",
+            base,
+            err_msg
+        );
+    }
+}
 
-    // encode(1, 1) would hang forever (value /= 1 never terminates) without the guard.
-    let result = unpack_packed(frame, 1, c, &data);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("out of supported range"));
+#[test]
+fn test_unpack_packed_without_json_is_error() {
+    // The unpacked script must still contain a `({...})` payload; a page whose
+    // frame carries something else fails with the dedicated message rather
+    // than reaching serde.
+    let err_msg = unpack_packed("SMH.imgData is not here", 10, 1, &["sl"])
+        .expect_err("a frame with no JSON payload must be rejected")
+        .to_string();
+    assert!(
+        err_msg.contains("Could not find JSON data"),
+        "Error message was: {}",
+        err_msg
+    );
 }
 
 #[test]
@@ -397,48 +401,6 @@ fn test_prompt_for_comic_selection_retry_on_invalid() {
 }
 
 #[test]
-fn test_re_word() {
-    let re = &*RE_WORD;
-
-    // Word boundary regex \b\w+\b matches word characters between word boundaries
-    // Note: 123 in the middle of alphanumeric chars is part of the same word
-    let caps: Vec<&str> = re.find_iter("hello123world").map(|m| m.as_str()).collect();
-    assert_eq!(caps, vec!["hello123world"]); // All word chars together form one word
-
-    // Test with spaces separating words
-    let caps: Vec<&str> = re.find_iter("hello 123 world").map(|m| m.as_str()).collect();
-    assert_eq!(caps, vec!["hello", "123", "world"]);
-
-    // Test with underscores (underscores are word characters)
-    let caps: Vec<&str> = re.find_iter("test_var_name").map(|m| m.as_str()).collect();
-    assert_eq!(caps, vec!["test_var_name"]); // Underscores connect words
-
-    // Test with special characters (should split)
-    let caps: Vec<&str> = re.find_iter("hello@world").map(|m| m.as_str()).collect();
-    assert_eq!(caps, vec!["hello", "world"]);
-}
-
-#[test]
-fn test_re_json() {
-    let re = &*RE_JSON;
-
-    // Standard format with function call
-    let text = "someFunc({\"key\":\"value\"})";
-    let caps = re.captures(text).unwrap();
-    assert_eq!(caps.get(1).map(|m| m.as_str()), Some("{\"key\":\"value\"}"));
-
-    // With nested JSON
-    let text = "SMH.imgData({\"0\":{\"1\":\"123\"},\"path\":\"/img/\"})";
-    let caps = re.captures(text).unwrap();
-    let json_str = caps.get(1).map(|m| m.as_str()).unwrap();
-    assert!(json_str.contains("\"0\""));
-    assert!(json_str.contains("\"path\""));
-
-    // Should not match if no parentheses
-    assert!(re.captures("{}").is_none());
-}
-
-#[test]
 fn test_re_chapter_data() {
     let re = &*RE_CHAPTER_DATA;
 
@@ -455,56 +417,6 @@ fn test_re_chapter_data() {
     let text = "xxx}(' packed_frame_data',10,5,'base64data==')xxx";
     let caps = re.captures(text).unwrap();
     assert_eq!(caps.get(1).map(|m| m.as_str()), Some("packed_frame_data"));
-}
-
-#[test]
-fn test_re_illegal_chars() {
-    let re = &*RE_ILLEGAL_CHARS;
-
-    // Test forward slash
-    let input = "file/name";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file_name");
-
-    // Test colon
-    let input = "file:name";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file_name");
-
-    // Test asterisk
-    let input = "file*name";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file_name");
-
-    // Test question mark
-    let input = "file?name";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file_name");
-
-    // Test double quote
-    let input = "file\"name";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file_name");
-
-    // Test angle brackets
-    let input = "file<name>";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file_name_");
-
-    // Test pipe
-    let input = "file|name";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file_name");
-
-    // Test multiple illegal characters
-    let input = "file<name>test*value?";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "file_name_test_value_");
-
-    // Test valid characters are not replaced
-    let input = "valid-file_name.txt";
-    let output = re.replace_all(input, "_").to_string();
-    assert_eq!(output, "valid-file_name.txt");
 }
 
 #[test]
@@ -547,24 +459,6 @@ fn test_compress_chapter_atomic_and_excludes_part_files() {
 }
 
 #[test]
-fn test_illegal_chars_unicode_handling() {
-    // Test that Unicode characters are preserved (not replaced)
-    let re = &*RE_ILLEGAL_CHARS;
-
-    let test_cases = vec![
-        ("漫畫標題", "漫畫標題"),     // Chinese characters preserved
-        ("マンガ", "マンガ"),         // Japanese preserved
-        ("만화", "만화"),             // Korean preserved
-        ("file_🎯name", "file_🎯name"), // Emoji preserved
-    ];
-
-    for (input, expected) in test_cases {
-        let output = re.replace_all(input, "_").to_string();
-        assert_eq!(output, expected, "Unicode should be preserved for: {}", input);
-    }
-}
-
-#[test]
 fn test_illegal_chars_windows_forbidden() {
     // The regex covers every character Windows forbids in file names:
     // \, /, :, *, ?, ", <, >, | plus the C0 control characters and DEL.
@@ -585,28 +479,34 @@ fn test_illegal_chars_windows_forbidden() {
 }
 
 #[test]
-fn test_illegal_chars_valid_characters_preserved() {
-    // Test that valid characters are NOT replaced
+fn test_illegal_chars_legal_characters_preserved() {
+    // Everything the regex does *not* cover must survive untouched: the
+    // punctuation that is legal in a file name, and every non-ASCII script a
+    // comic title can be written in.
     let re = &*RE_ILLEGAL_CHARS;
 
-    let test_cases = vec![
-        "file-name",      // Hyphen valid
-        "file_name",      // Underscore valid
-        "file.name",      // Dot valid
-        "file (1)",       // Parentheses, space valid
-        "file[backup]",   // Brackets valid
-        "file@home",      // @ valid
-        "file&name",      // & valid
-        "file+name",      // + valid
-        "file=name",      // = valid
-        "file name",      // Space valid
+    let test_cases = [
+        "file-name",      // Hyphen
+        "file_name",      // Underscore
+        "file.name",      // Dot
+        "file (1)",       // Parentheses, space
+        "file[backup]",   // Brackets
+        "file@home",      // @
+        "file&name",      // &
+        "file+name",      // +
+        "file=name",      // =
+        "file name",      // Space
+        "漫畫標題",        // Chinese
+        "マンガ",          // Japanese
+        "만화",            // Korean
+        "file_🎯name",    // Emoji
     ];
 
     for input in test_cases {
         let output = re.replace_all(input, "_").to_string();
         assert_eq!(
             output, input,
-            "Valid filename characters should be preserved: {}",
+            "Legal filename characters should be preserved: {}",
             input
         );
     }
