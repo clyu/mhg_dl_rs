@@ -778,7 +778,6 @@ fn test_download_incomplete_file() {
     let client = reqwest::blocking::Client::new();
     let comic = Comic {
         client,
-        host: "http://localhost".to_string(),
         tunnel: format!("http://127.0.0.1:{}", port),
         delay: Duration::from_millis(0),
         title: "Test Comic".to_string(),
@@ -832,7 +831,6 @@ fn test_download_resume_logic() {
     let client = reqwest::blocking::Client::new();
     let comic = Comic {
         client,
-        host: "http://localhost".to_string(),
         tunnel: "http://invalid-host-should-not-be-reached".to_string(),
         delay: Duration::from_millis(0),
         title: "Test Comic".to_string(),

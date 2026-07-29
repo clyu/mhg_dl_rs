@@ -188,7 +188,6 @@ struct Chapter {
 
 struct Comic {
     client: Client,
-    host: String,
     tunnel: String,
     delay: Duration,
     title: String,
@@ -454,14 +453,13 @@ impl Comic {
     /// `id` stays a separate argument rather than being read off `args`: it may
     /// have come from `--search` instead of the positional URL.
     fn new(id: usize, client: Client, args: &Args) -> Result<Self> {
-        let host = String::from(HOST);
-        let res = fetch_html(&client, &format!("{}/comic/{}", host, id), &format!("{}/", host))?;
+        let url = resolve_url(&format!("/comic/{id}"))?;
+        let res = fetch_html(&client, url.as_str(), HOST_URL.as_str())?;
         let (title, chapters) = Self::parse_comic_html(&res)?;
         let book_safe = sanitize(&title);
         let book_dir = args.output_dir.join(&book_safe);
         Ok(Comic {
             client,
-            host,
             tunnel: format!("https://{}.hamreus.com", TUNNEL_CHANNELS[args.tunnel]),
             delay: Duration::from_millis(args.delay_ms),
             title,
@@ -508,7 +506,7 @@ impl Comic {
     }
 
     fn get_chapter(&self, url: &str) -> Result<ChapterStruct> {
-        let text = fetch_html(&self.client, url, &format!("{}/", self.host))?;
+        let text = fetch_html(&self.client, url, HOST_URL.as_str())?;
         Self::parse_chapter_html(&text)
     }
 
