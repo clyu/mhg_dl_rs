@@ -337,19 +337,20 @@ fn decode_lz_base64(data: &str, what: &str) -> Result<String> {
         .map_err(|_| AppError::ContentParsing(format!("Failed to decode {}", what)))
 }
 
+/// Only the headers that are identical on *every* request belong here.
+/// Anything that describes one kind of request — `accept`, `priority`, the
+/// `sec-fetch-*` triple — is set at the call site instead: `fetch_html` sends
+/// them as a top-level navigation, `download_images` as a cross-site image.
+/// Keeping request-shaped values out of the defaults is what stops the image
+/// fetch from having to override five of them to undo a document's.
 fn build_client() -> Result<Client> {
     let mut headers = HeaderMap::new();
     for (key, value) in [
-        ("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
         ("accept-encoding", "gzip, deflate, br"),
         ("accept-language", "zh-TW;q=0.8,en-US,en;q=0.5,zh;q=0.3"),
         ("cache-control", "no-cache"),
         ("dnt", "1"),
         ("pragma", "no-cache"),
-        ("priority", "u=0, i"),
-        ("sec-fetch-dest", "document"),
-        ("sec-fetch-mode", "navigate"),
-        ("sec-fetch-site", "same-origin"),
         ("sec-gpc", "1"),
         ("user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"),
     ] {
@@ -378,11 +379,19 @@ fn resolve_url(href: &str) -> Result<Url> {
         .map_err(|e| AppError::ContentParsing(format!("Invalid URL '{href}': {e}")))
 }
 
+/// Fetch a page the way a browser fetches a top-level document; see
+/// `build_client` for why the document-shaped headers live here rather than in
+/// the client defaults.
 fn fetch_html(client: &Client, url: &str, referer: &str) -> Result<String> {
     Ok(client
         .get(url)
+        .header("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         .header("cookie", "country=TW")
+        .header("priority", "u=0, i")
         .header("referer", referer)
+        .header("sec-fetch-dest", "document")
+        .header("sec-fetch-mode", "navigate")
+        .header("sec-fetch-site", "same-origin")
         .header("sec-fetch-user", "?1")
         .header("upgrade-insecure-requests", "1")
         .send()?
