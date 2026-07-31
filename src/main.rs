@@ -56,7 +56,6 @@ static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
 /// takes the leftmost match, so `\w+` can only start where a run of word
 /// characters starts, and being greedy it always consumes the run to its end.
 static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\w+").unwrap());
-static RE_JSON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\((\{.*?\})\)").unwrap());
 static RE_CHAPTER_DATA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'").unwrap());
 static RE_ILLEGAL_CHARS: LazyLock<Regex> =
@@ -325,10 +324,24 @@ fn unpack_packed(
             dmap.get(key).copied().unwrap_or(key).to_string()
         })
         .into_owned();
-    let caps = RE_JSON.captures(&js).ok_or_else(|| {
+    // The payload is the argument of the first `({ … })` call in the unpacked
+    // script. Only its start is searched for; its end comes from deserializing
+    // exactly one JSON value, not from matching a closing `})`. The packed
+    // frame keeps every non-word character verbatim, so a `})` sitting inside a
+    // free-text field — `bname` and `cname` carry comic and chapter titles —
+    // reaches the payload unescaped, and a regex ending at the first `})` would
+    // cut the object short there and report it as an unintelligible "EOF while
+    // parsing" from serde.
+    let no_json = || {
         AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
-    })?;
-    let chapter: ChapterStruct = serde_json::from_str(&caps[1])?;
+    };
+    // `find` returns the offset of `(`; the value starts at the `{` after it.
+    let start = js.find("({").ok_or_else(no_json)? + 1;
+    let chapter: ChapterStruct = serde_json::Deserializer::from_str(&js[start..])
+        .into_iter()
+        .next()
+        .transpose()?
+        .ok_or_else(no_json)?;
     // A chapter with no images would produce an empty .cbz that marks the
     // chapter as done forever; fail here so the user sees an error instead.
     if chapter.files.is_empty() {

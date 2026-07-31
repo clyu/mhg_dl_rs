@@ -59,8 +59,8 @@ fn test_parse_id() {
 #[test]
 fn test_unpack_packed() {
     // A simplified example of "packed" JavaScript code and its dictionary.
-    // No space between '(' and '{': the RE_JSON regex \((\{.*?\})\) requires
-    // the brace to immediately follow the parenthesis.
+    // No space between '(' and '{': the payload is located by searching for the
+    // literal "({", so the brace has to immediately follow the parenthesis.
     let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[\"01.jpg\"]})";
     let a = 10;
     let c = 5;
@@ -111,6 +111,29 @@ fn test_unpack_packed_base_out_of_range() {
             err_msg
         );
     }
+}
+
+#[test]
+fn test_unpack_packed_payload_with_brace_paren_in_a_string_value() {
+    // Only word runs are substituted, so punctuation inside a title survives
+    // the unpacking verbatim and lands in the JSON payload. A chapter named
+    // "第01話(完})" therefore puts a `})` in the middle of the object, and
+    // ending the payload at the first `})` would truncate it into invalid JSON.
+    // The keys after the offending value are the ones that must still arrive.
+    let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"5\":\"第01話(完})\",\"3\":\"/comic/\",\"4\":[\"01.jpg\"]}).preInit();";
+    let data = vec![
+        "sl",    // 0
+        "e",     // 1
+        "m",     // 2
+        "path",  // 3
+        "files", // 4
+        "cname", // 5
+    ];
+
+    let result = unpack_packed(frame, 10, 6, &data).expect("payload must survive an embedded `})`");
+
+    assert_eq!(result.path, "/comic/");
+    assert_eq!(result.files, vec!["01.jpg".to_string()]);
 }
 
 #[test]
