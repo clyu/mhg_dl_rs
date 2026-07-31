@@ -1,4 +1,5 @@
 use super::*;
+use tempfile::TempDir;
 
 // Helper function to load test HTML files
 fn load_test_html(filename: &str) -> String {
@@ -505,7 +506,6 @@ fn test_re_chapter_data() {
 fn test_compress_chapter_atomic_and_excludes_part_files() {
     use std::fs;
     use std::io::Read;
-    use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();
     let test_dir = temp_dir.path();
@@ -600,7 +600,6 @@ fn test_compress_chapter_file_ordering() {
     // list below is deliberately in neither ascending nor descending name
     // order: a list that happened to be sorted would be reproduced by a
     // directory listing too, and the test would prove nothing.
-    use tempfile::TempDir;
     use std::fs::File;
 
     let temp_dir = TempDir::new().unwrap();
@@ -643,7 +642,6 @@ fn test_compress_chapter_ignores_stale_files_from_previous_run() {
     // zero padding, leaving the old narrower names behind. Packing the
     // directory listing would both duplicate those pages and misplace them,
     // because '0' sorts before '_': "0_page.jpg" lands after "09_page.jpg".
-    use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();
     let test_dir = temp_dir.path();
@@ -676,7 +674,6 @@ fn test_compress_chapter_ignores_stale_files_from_previous_run() {
 fn test_compress_chapter_missing_page_is_error() {
     // A page named in the list but absent from disk must fail loudly: silently
     // dropping it would publish a .cbz with a hole that is then cached forever.
-    use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();
     let test_dir = temp_dir.path();
@@ -861,7 +858,6 @@ fn test_download_rejects_non_image_body() {
     use std::net::TcpListener;
     use std::io::{Read, Write};
     use std::thread;
-    use tempfile::TempDir;
 
     // An anti-hotlink page answering 200 gets past error_for_status. Accepting
     // it would publish it under the page's final name, where every later run
@@ -913,7 +909,6 @@ fn test_download_incomplete_file() {
     use std::net::TcpListener;
     use std::io::{Read, Write};
     use std::thread;
-    use tempfile::TempDir;
 
     // 1. Set up a minimal Mock Server
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -968,7 +963,6 @@ fn test_download_incomplete_file() {
 
 #[test]
 fn test_download_resume_logic() {
-    use tempfile::TempDir;
     use std::fs;
 
     let temp_dir = TempDir::new().unwrap();
