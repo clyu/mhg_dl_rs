@@ -751,6 +751,89 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
 }
 
 #[test]
+fn test_looks_like_image_accepts_the_served_formats() {
+    // Enough of a header for each of the two signatures the allow list carries.
+    assert!(looks_like_image(b"\xFF\xD8\xFF\xE0\x00\x10JFIF"));
+    assert!(looks_like_image(b"RIFF\x24\x00\x00\x00WEBP"));
+}
+
+#[test]
+fn test_looks_like_image_rejects_non_images() {
+    // What a 200 anti-hotlink or interstitial response actually carries.
+    assert!(!looks_like_image(b"<!DOCTYPE html"));
+    assert!(!looks_like_image(b"<html><body>4"));
+    assert!(!looks_like_image(b"{\"error\":\"403\""));
+    // A RIFF container that is not WebP, and a truncated one that never gets
+    // far enough to prove it is.
+    assert!(!looks_like_image(b"RIFF\x24\x00\x00\x00WAVE"));
+    assert!(!looks_like_image(b"RIFF\x24\x00"));
+    // Nothing at all, which is what an empty 200 body reads as.
+    assert!(!looks_like_image(b""));
+    // Image formats outside the two the tunnel serves are turned away as well.
+    // The list is deliberately narrow: picking one up has to be a deliberate
+    // edit, not something that slips in behind a generic "is an image" test.
+    assert!(!looks_like_image(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0d"));
+    assert!(!looks_like_image(b"GIF89a\x01\x00\x01\x00\x00\x00"));
+    assert!(!looks_like_image(b"\x00\x00\x00\x20ftypavif"));
+}
+
+#[test]
+fn test_download_rejects_non_image_body() {
+    use std::net::TcpListener;
+    use std::io::{Read, Write};
+    use std::thread;
+    use tempfile::TempDir;
+
+    // An anti-hotlink page answering 200 gets past error_for_status. Accepting
+    // it would publish it under the page's final name, where every later run
+    // skips it as already downloaded and compress_chapter seals it into the
+    // .cbz as a page.
+    let body = "<!DOCTYPE html><html><body>forbidden</body></html>";
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_thread = thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buffer = [0; 512];
+            let _ = stream.read(&mut buffer);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    let temp_dir = TempDir::new().unwrap();
+    let chapter_dir = temp_dir.path().to_path_buf();
+    let bar = ProgressBar::hidden();
+    let comic = test_comic(&format!("http://127.0.0.1:{}", port), temp_dir.path());
+
+    let chap = ChapterStruct {
+        sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
+        path: "/".to_string(),
+        files: vec!["test.jpg".to_string()],
+    };
+
+    let err = comic
+        .download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter")
+        .expect_err("an HTML body must not be accepted as a page");
+    assert!(
+        err.to_string().contains("is not an image"),
+        "Error message was: {}",
+        err
+    );
+
+    // Neither the final name nor a leftover .part may survive the rejection.
+    assert!(!chapter_dir.join("0_test.jpg").exists());
+    assert!(!chapter_dir.join("0_test.jpg.part").exists());
+
+    server_thread.join().unwrap();
+}
+
+#[test]
 fn test_download_incomplete_file() {
     use std::net::TcpListener;
     use std::io::{Read, Write};
@@ -766,10 +849,14 @@ fn test_download_incomplete_file() {
             let mut buffer = [0; 512];
             let _ = stream.read(&mut buffer); // Read request
 
-            // Return Content-Length: 100, but only provide 50 bytes then disconnect
+            // Return Content-Length: 100, but only provide 50 bytes then disconnect.
+            // The body opens with a real JPEG signature so that this exercises
+            // the length check rather than being turned away by the signature
+            // check that runs ahead of it.
             let response = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n";
             let _ = stream.write_all(response.as_bytes());
-            let _ = stream.write_all(&[0u8; 50]);
+            let _ = stream.write_all(b"\xFF\xD8\xFF\xE0");
+            let _ = stream.write_all(&[0u8; 46]);
             // The stream will be closed automatically when the thread ends (RAII)
         }
     });

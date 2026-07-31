@@ -15,7 +15,7 @@ use regex::Regex;
 use rand::Rng;
 use std::{
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     num::ParseIntError,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -269,6 +269,25 @@ fn write_atomic(dst: &Path, write: impl FnOnce(&mut fs::File) -> Result<()>) -> 
     // the partial file.
     drop(file);
     part.commit()
+}
+
+/// How many bytes of a response `looks_like_image` needs to see. The longest
+/// signature it checks is WebP's, whose `WEBP` tag sits at offset 8.
+const IMAGE_HEAD_LEN: usize = 12;
+
+/// Whether `head` — the first `IMAGE_HEAD_LEN` bytes of a response — opens with
+/// the signature of one of the two formats the tunnel serves.
+///
+/// This is an allow list rather than a "does not look like HTML" test: what has
+/// to be kept out is anything that is *not* an image, and an anti-hotlink or
+/// interstitial response answering 200 need not be HTML for `error_for_status`
+/// to have let it through. The cost of a list this narrow is that a format the
+/// site adds later is rejected until it is added here — which surfaces as the
+/// caller's error, naming the bytes it saw, rather than as a corrupt page
+/// sealed inside a finished .cbz.
+fn looks_like_image(head: &[u8]) -> bool {
+    head.starts_with(b"\xFF\xD8\xFF")                                       // JPEG
+        || (head.starts_with(b"RIFF") && head.get(8..12) == Some(&b"WEBP"[..])) // WebP
 }
 
 fn unpack_packed(
@@ -711,11 +730,28 @@ impl Comic {
                 .error_for_status()?;
 
             let content_length = resp.content_length();
-            // The length check belongs inside the closure: returning `Ok` is
-            // what renames the file into place, and a truncated page under the
-            // final name would be skipped as finished by every later run.
+            // Both checks belong inside the closure: returning `Ok` is what
+            // renames the file into place, and a truncated or non-image page
+            // under the final name would be skipped as finished by every later
+            // run — there is no second chance to notice it.
             write_atomic(&dst, |out| {
-                let bytes_written = io::copy(&mut resp, out)?;
+                // Sniff the signature before writing anything. `error_for_status`
+                // only rules out an error *status*; an anti-hotlink page served
+                // as 200 would otherwise be sealed into the .cbz as a page.
+                let mut head = Vec::with_capacity(IMAGE_HEAD_LEN);
+                resp.by_ref()
+                    .take(IMAGE_HEAD_LEN as u64)
+                    .read_to_end(&mut head)?;
+                if !looks_like_image(&head) {
+                    return Err(AppError::ContentParsing(format!(
+                        "Page {} ({}) is not an image: response starts with {:02x?}",
+                        i + 1,
+                        file,
+                        head
+                    )));
+                }
+                out.write_all(&head)?;
+                let bytes_written = head.len() as u64 + io::copy(&mut resp, out)?;
                 if let Some(expected) = content_length {
                     if bytes_written != expected {
                         return Err(AppError::Io(io::Error::new(
