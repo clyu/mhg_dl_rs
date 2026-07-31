@@ -52,7 +52,10 @@ static TUNNEL_HELP: LazyLock<String> = LazyLock::new(|| {
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:(?:https?://(?:[\w\.]+\.)?manhuagui\.com)?/comic/)?(\d+)\b").unwrap()
 });
-static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\w+\b").unwrap());
+/// One dictionary key of a packed script. No `\b` anchors are needed: a scan
+/// takes the leftmost match, so `\w+` can only start where a run of word
+/// characters starts, and being greedy it always consumes the run to its end.
+static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\w+").unwrap());
 static RE_JSON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\((\{.*?\})\)").unwrap());
 static RE_CHAPTER_DATA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'").unwrap());
