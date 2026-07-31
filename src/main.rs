@@ -339,12 +339,19 @@ fn unpack_packed(
             dmap.insert(encode(i, a), *word);
         }
     }
-    let js = RE_WORD
-        .replace_all(frame, |caps: &regex::Captures| {
-            let key = caps.get(0).unwrap().as_str();
-            dmap.get(key).copied().unwrap_or(key).to_string()
-        })
-        .into_owned();
+    // Written out by hand rather than with `replace_all`, whose `Replacer`
+    // return type cannot borrow from the match: the closure would have to hand
+    // back an owned `String` for every word in the frame, including the many it
+    // leaves alone, which is thousands of allocations for a page. Copying the
+    // gaps and the words straight into the output costs one allocation.
+    let mut js = String::with_capacity(frame.len());
+    let mut last = 0;
+    for m in RE_WORD.find_iter(frame) {
+        js.push_str(&frame[last..m.start()]);
+        js.push_str(dmap.get(m.as_str()).copied().unwrap_or(m.as_str()));
+        last = m.end();
+    }
+    js.push_str(&frame[last..]);
     // The payload is the argument of the first `({ … })` call in the unpacked
     // script. Only its start is searched for; its end comes from deserializing
     // exactly one JSON value, not from matching a closing `})`. The packed

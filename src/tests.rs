@@ -129,6 +129,24 @@ fn test_unpack_packed_base_out_of_range() {
 }
 
 #[test]
+fn test_unpack_packed_keeps_the_text_before_the_first_word() {
+    // The substitution walks the frame match by match and copies the gaps
+    // between them itself. Every other frame in the suite opens on a word, so
+    // the gap ahead of the first match is only ever empty there. Here the frame
+    // opens on `({"` and the first word is the key after it, which puts the
+    // whole `({` that locates the payload inside that leading gap: lose it and
+    // there is nothing left to find.
+    let frame = "({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[\"01.jpg\"]})";
+    let data = vec!["sl", "e", "m", "path", "files"];
+
+    let result = unpack_packed(frame, 10, 5, &data).unwrap();
+
+    assert_eq!(result.path, "/comic/");
+    assert_eq!(result.files, vec!["01.jpg".to_string()]);
+    assert_eq!(result.sl.m, "abc");
+}
+
+#[test]
 fn test_unpack_packed_payload_with_brace_paren_in_a_string_value() {
     // Only word runs are substituted, so punctuation inside a title survives
     // the unpacking verbatim and lands in the JSON payload. A chapter named
