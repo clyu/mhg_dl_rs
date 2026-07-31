@@ -136,8 +136,13 @@ struct Args {
 
 /// Extract a comic ID from a bare number, an absolute manhuagui comic URL,
 /// or a site-relative path like `/comic/12345/` (as found in search results).
+///
+/// The input is trimmed first, because `RE_ID` is anchored at the start of the
+/// string: a pasted URL carrying a leading space, or an `href` attribute the
+/// page wrote with surrounding whitespace (which a browser strips and the HTML
+/// parser does not), would otherwise not match at all.
 fn parse_id(s: &str) -> Option<usize> {
-    RE_ID.captures(s).and_then(|c| c[1].parse().ok())
+    RE_ID.captures(s.trim()).and_then(|c| c[1].parse().ok())
 }
 
 #[derive(Deserialize, Debug)]

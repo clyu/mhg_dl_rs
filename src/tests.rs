@@ -40,6 +40,20 @@ fn test_parse_id() {
     // digits must not be silently accepted as a valid ID.
     assert_eq!(parse_id("123abc"), None);
     assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345garbage"), None);
+
+    // Surrounding whitespace is stripped: a pasted URL or an href written with
+    // padding must parse the same as the bare form.
+    assert_eq!(parse_id("  12345  "), Some(12345));
+    assert_eq!(parse_id("\t/comic/54544/\n"), Some(54544));
+    assert_eq!(
+        parse_id(" https://tw.manhuagui.com/comic/12345 "),
+        Some(12345)
+    );
+
+    // Trimming must not turn garbage into a match.
+    assert_eq!(parse_id("   "), None);
+    assert_eq!(parse_id("  abcde  "), None);
+    assert_eq!(parse_id("  123abc  "), None);
 }
 
 #[test]
