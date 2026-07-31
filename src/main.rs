@@ -196,6 +196,57 @@ struct Comic {
     book_dir: PathBuf,
 }
 
+/// The `.part` file an image or an archive is written to before it is moved
+/// into place, so a half-written file is never mistaken for a finished one.
+///
+/// Dropping the guard without a successful `commit` deletes the partial file.
+/// Without that, every exit between creating it and the final rename — a
+/// stalled transfer, a short read, a page missing from disk, the rename itself
+/// — would leave a stray `.part` behind, in a directory that is otherwise only
+/// cleaned up on the success path.
+struct PartFile {
+    part: PathBuf,
+    dst: PathBuf,
+    committed: bool,
+}
+
+impl PartFile {
+    /// Create `dst` with `.part` appended, truncating any leftover from an
+    /// earlier run, and hand back the guard together with the open handle.
+    fn create(dst: &Path) -> Result<(Self, fs::File)> {
+        let mut part = dst.as_os_str().to_owned();
+        part.push(".part");
+        let part = PathBuf::from(part);
+        let file = fs::File::create(&part)?;
+        Ok((
+            PartFile {
+                part,
+                dst: dst.to_path_buf(),
+                committed: false,
+            },
+            file,
+        ))
+    }
+
+    /// Move the finished file into place. The handle it was written through
+    /// must be closed first: Windows can refuse to move a file that is still
+    /// open. A failed rename leaves the guard armed, so the partial file is
+    /// removed on the way out.
+    fn commit(mut self) -> Result<()> {
+        fs::rename(&self.part, &self.dst)?;
+        self.committed = true;
+        Ok(())
+    }
+}
+
+impl Drop for PartFile {
+    fn drop(&mut self) {
+        if !self.committed {
+            let _ = fs::remove_file(&self.part);
+        }
+    }
+}
+
 fn unpack_packed(
     frame: &str,
     a: usize,
@@ -549,7 +600,6 @@ impl Comic {
             let file_safe = sanitize(file);
             let fname = format!("{:0width$}_{}", i, file_safe, width = width);
             let dst = chapter_dir.join(&fname);
-            let dst_part = chapter_dir.join(format!("{fname}.part"));
             names.push(fname);
 
             if dst.exists() {
@@ -575,11 +625,11 @@ impl Comic {
                 .error_for_status()?;
 
             let content_length = resp.content_length();
-            let mut out = fs::File::create(&dst_part)?;
+            let (part, mut out) = PartFile::create(&dst)?;
             let bytes_written = io::copy(&mut resp, &mut out)?;
-            // Close the handle before renaming: Windows can refuse to move a
-            // file that is still open, and closing here also covers the error
-            // return below.
+            // Close the handle before committing: Windows can refuse to move a
+            // file that is still open. `out` is bound after `part`, so it is
+            // also closed first on the error paths that skip this.
             drop(out);
 
             if let Some(expected) = content_length {
@@ -591,7 +641,7 @@ impl Comic {
                 }
             }
 
-            fs::rename(&dst_part, &dst)?;
+            part.commit()?;
             bar.inc(1);
             needs_delay = true;
         }
@@ -610,8 +660,7 @@ impl Comic {
     /// into the wrong places, since `'0' < '_'` puts `0_a.webp` after
     /// `09_a.webp` — producing a scrambled .cbz that is then cached forever.
     fn compress_chapter(chapter_dir: &Path, file_names: &[String], zip_path: &Path) -> Result<()> {
-        let zip_part = zip_path.with_extension("cbz.part");
-        let zip_file = fs::File::create(&zip_part)?;
+        let (part, zip_file) = PartFile::create(zip_path)?;
         let mut zip = ZipWriter::new(zip_file);
         let options = FileOptions::default().compression_method(CompressionMethod::Stored);
 
@@ -623,8 +672,10 @@ impl Comic {
 
         // `finish` hands back the underlying file; drop it so the handle is
         // closed before the rename, for the same reason as in download_images.
+        // `zip` is bound after `part`, so on an error path it is dropped — and
+        // the handle closed — before `part` removes the partial archive.
         drop(zip.finish()?);
-        fs::rename(&zip_part, zip_path)?;
+        part.commit()?;
         // The .cbz is already in place; failing to clean up the now-redundant
         // image directory must not report the chapter as failed. Warn instead.
         if let Err(e) = fs::remove_dir_all(chapter_dir) {
