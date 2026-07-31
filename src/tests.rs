@@ -745,6 +745,55 @@ fn test_sanitize_trims_and_never_returns_empty() {
 }
 
 #[test]
+fn test_sanitize_bounds_the_length() {
+    // Anything at or below the budget is left exactly as it was.
+    let fits = "a".repeat(MAX_NAME_BYTES);
+    assert_eq!(sanitize(&fits), fits);
+
+    // Past it, the name is cut to the budget.
+    let long = "a".repeat(MAX_NAME_BYTES + 50);
+    assert_eq!(sanitize(&long).len(), MAX_NAME_BYTES);
+
+    // The cut lands on a character boundary rather than splitting a multi-byte
+    // character — slicing one in half would panic. The leading ASCII byte puts
+    // every following boundary at an offset the budget does not fall on, so
+    // this only passes if the cut actually walks back to one.
+    let cjk = format!("x{}", "漢".repeat(100));
+    let cut = sanitize(&cjk);
+    assert!(cut.len() <= MAX_NAME_BYTES);
+    assert!(cjk.starts_with(&cut), "the cut must be a prefix of the input");
+    assert_eq!(cut.chars().count(), 1 + (MAX_NAME_BYTES - 1) / 3);
+
+    // A cut that stops right after a dot must not leave it dangling: Windows
+    // rejects a name ending in one.
+    let dotted = format!("{}.{}", "a".repeat(MAX_NAME_BYTES - 1), "b".repeat(10));
+    assert_eq!(sanitize(&dotted), "a".repeat(MAX_NAME_BYTES - 1));
+
+    // A name that is nothing but dots once cut still falls back to "_".
+    assert_eq!(sanitize(&".".repeat(MAX_NAME_BYTES + 50)), "_");
+}
+
+#[test]
+fn test_sanitized_names_compose_into_a_legal_component() {
+    // The budget exists for the longest component the program builds: a
+    // chapter's archive spends two sanitized names at once, and 255 bytes is
+    // what ext4 and APFS allow per component.
+    let book = sanitize(&"漫".repeat(200));
+    let chapter = sanitize(&"話".repeat(200));
+    let zip_name = format!("{}_{}.cbz", book, chapter);
+    assert!(
+        zip_name.len() <= 255,
+        "archive name is {} bytes: {}",
+        zip_name.len(),
+        zip_name
+    );
+
+    // A page file name is one sanitized name behind a zero-padded index.
+    let page_name = format!("{:04}_{}", 9999, sanitize(&"頁".repeat(200)));
+    assert!(page_name.len() <= 255, "page name is {} bytes", page_name.len());
+}
+
+#[test]
 fn test_image_url_anchors_the_page_path_on_the_tunnel() {
     let comic = test_comic("https://i.hamreus.com", Path::new("."));
 

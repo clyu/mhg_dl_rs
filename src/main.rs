@@ -380,18 +380,54 @@ fn unpack_packed(
     Ok(chapter)
 }
 
+/// Byte budget for one sanitized name.
+///
+/// The limit that actually matters belongs to the file system — 255 bytes per
+/// path component on ext4 and APFS, 255 UTF-16 units on NTFS — and the longest
+/// component this program builds is a chapter's archive, `{book}_{chapter}.cbz`,
+/// which spends two sanitized names at once. Budgeting each at 120 keeps that
+/// under the limit with room to spare (120 + 1 + 120 + 4 = 245), and 245 bytes
+/// of CJK is well under 255 UTF-16 units too. A page file name, one sanitized
+/// name behind a short index, is nowhere near it.
+///
+/// Without a bound a long title is not a cosmetic problem: the create fails with
+/// `ENAMETOOLONG`, and it fails again on every later run, so the chapter can
+/// never be downloaded at all.
+const MAX_NAME_BYTES: usize = 120;
+
 /// Make `s` usable as a single path component: replace characters that are
-/// invalid in file names with `_`, then strip surrounding whitespace and
-/// trailing dots. Windows rejects names ending in a dot or a space, and a name
-/// consisting only of dots (`.`, `..`) would otherwise resolve to a directory
-/// outside the intended one. Falls back to `_` when nothing usable is left.
+/// invalid in file names with `_`, strip surrounding whitespace and trailing
+/// dots, and cut it down to `MAX_NAME_BYTES`. Windows rejects names ending in a
+/// dot or a space, and a name consisting only of dots (`.`, `..`) would
+/// otherwise resolve to a directory outside the intended one. Falls back to `_`
+/// when nothing usable is left.
+///
+/// Two titles sharing a truncated prefix collapse onto one name, as two titles
+/// differing only in an illegal character already do. `download_chapter` treats
+/// an existing archive as done, so a collision shows up as a chapter skipped
+/// rather than as one overwriting another.
 fn sanitize(s: &str) -> String {
     let replaced = RE_ILLEGAL_CHARS.replace_all(s, "_");
     let trimmed = replaced.trim().trim_end_matches(['.', ' ']);
-    if trimmed.is_empty() {
+    // Cut at the last char boundary at or below the budget: slicing a multi-byte
+    // character in half would panic, and `floor_char_boundary` is still
+    // unstable. At most three steps, since a UTF-8 sequence is at most 4 bytes.
+    let bounded = if trimmed.len() > MAX_NAME_BYTES {
+        let mut end = MAX_NAME_BYTES;
+        while !trimmed.is_char_boundary(end) {
+            end -= 1;
+        }
+        &trimmed[..end]
+    } else {
+        trimmed
+    };
+    // The cut can expose a trailing dot or space that the trim above had no
+    // reason to touch, and Windows rejects a name ending in either.
+    let bounded = bounded.trim_end_matches(['.', ' ']);
+    if bounded.is_empty() {
         "_".to_string()
     } else {
-        trimmed.to_string()
+        bounded.to_string()
     }
 }
 
