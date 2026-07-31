@@ -22,6 +22,18 @@ fn test_comic(tunnel: &str, book_dir: &Path) -> Comic {
     }
 }
 
+/// A chapter served straight off the tunnel root. `files` stays a parameter
+/// rather than being baked in because the page names the download tests assert
+/// on are zero-padded to the width of the page count, so how many pages a
+/// chapter has belongs at the call site.
+fn test_chapter(files: &[&str]) -> ChapterStruct {
+    ChapterStruct {
+        sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
+        path: "/".to_string(),
+        files: files.iter().map(|f| f.to_string()).collect(),
+    }
+}
+
 #[test]
 fn test_parse_id() {
     // Test pure numeric ID
@@ -829,11 +841,7 @@ fn test_download_rejects_non_image_body() {
     let bar = ProgressBar::hidden();
     let comic = test_comic(&format!("http://127.0.0.1:{}", port), temp_dir.path());
 
-    let chap = ChapterStruct {
-        sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
-        path: "/".to_string(),
-        files: vec!["test.jpg".to_string()],
-    };
+    let chap = test_chapter(&["test.jpg"]);
 
     let err = comic
         .download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter")
@@ -886,11 +894,7 @@ fn test_download_incomplete_file() {
 
     let comic = test_comic(&format!("http://127.0.0.1:{}", port), temp_dir.path());
 
-    let chap = ChapterStruct {
-        sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
-        path: "/".to_string(),
-        files: vec!["test.jpg".to_string()],
-    };
+    let chap = test_chapter(&["test.jpg"]);
 
     // 3. Execute download and verify result
     let result = comic.download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter");
@@ -930,11 +934,7 @@ fn test_download_resume_logic() {
 
     let comic = test_comic("http://invalid-host-should-not-be-reached", temp_dir.path());
 
-    let chap = ChapterStruct {
-        sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
-        path: "/".to_string(),
-        files: vec!["test.jpg".to_string()],
-    };
+    let chap = test_chapter(&["test.jpg"]);
 
     // If the logic is correct, it will see 0_test.jpg exists and skip network calls.
     // If it attempts to download, it will fail because the tunnel host is invalid.
