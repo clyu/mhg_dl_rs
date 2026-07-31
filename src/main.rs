@@ -196,8 +196,9 @@ struct Comic {
     book_dir: PathBuf,
 }
 
-/// The `.part` file an image or an archive is written to before it is moved
-/// into place, so a half-written file is never mistaken for a finished one.
+/// The `.part` file `write_atomic` builds its output in, and the only thing
+/// that constructs one — go through `write_atomic` rather than driving this
+/// directly.
 ///
 /// Dropping the guard without a successful `commit` deletes the partial file.
 /// Without that, every exit between creating it and the final rename — a
@@ -245,6 +246,22 @@ impl Drop for PartFile {
             let _ = fs::remove_file(&self.part);
         }
     }
+}
+
+/// Produce `dst` through a `.part` file, so its final name only ever appears
+/// once the content behind it is complete: `write` fills the handle, the handle
+/// is closed, and only then is the file renamed into place. Anything `write`
+/// rejects — a short read, a page missing from disk — must be reported from
+/// inside it, because returning `Ok` is what publishes the file.
+fn write_atomic(dst: &Path, write: impl FnOnce(&mut fs::File) -> Result<()>) -> Result<()> {
+    let (part, mut file) = PartFile::create(dst)?;
+    write(&mut file)?;
+    // Close the handle before the rename: Windows can refuse to move a file
+    // that is still open. `file` is bound after `part`, so on the error path
+    // above it is dropped — and closed — first as well, before `part` removes
+    // the partial file.
+    drop(file);
+    part.commit()
 }
 
 fn unpack_packed(
@@ -634,23 +651,21 @@ impl Comic {
                 .error_for_status()?;
 
             let content_length = resp.content_length();
-            let (part, mut out) = PartFile::create(&dst)?;
-            let bytes_written = io::copy(&mut resp, &mut out)?;
-            // Close the handle before committing: Windows can refuse to move a
-            // file that is still open. `out` is bound after `part`, so it is
-            // also closed first on the error paths that skip this.
-            drop(out);
-
-            if let Some(expected) = content_length {
-                if bytes_written != expected {
-                    return Err(AppError::Io(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        format!("Incomplete download: expected {} bytes, got {}", expected, bytes_written),
-                    )));
+            // The length check belongs inside the closure: returning `Ok` is
+            // what renames the file into place, and a truncated page under the
+            // final name would be skipped as finished by every later run.
+            write_atomic(&dst, |out| {
+                let bytes_written = io::copy(&mut resp, out)?;
+                if let Some(expected) = content_length {
+                    if bytes_written != expected {
+                        return Err(AppError::Io(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            format!("Incomplete download: expected {} bytes, got {}", expected, bytes_written),
+                        )));
+                    }
                 }
-            }
-
-            part.commit()?;
+                Ok(())
+            })?;
             bar.inc(1);
             needs_delay = true;
         }
@@ -669,22 +684,23 @@ impl Comic {
     /// into the wrong places, since `'0' < '_'` puts `0_a.webp` after
     /// `09_a.webp` — producing a scrambled .cbz that is then cached forever.
     fn compress_chapter(chapter_dir: &Path, file_names: &[String], zip_path: &Path) -> Result<()> {
-        let (part, zip_file) = PartFile::create(zip_path)?;
-        let mut zip = ZipWriter::new(zip_file);
-        let options = FileOptions::default().compression_method(CompressionMethod::Stored);
+        write_atomic(zip_path, |zip_file| {
+            let mut zip = ZipWriter::new(zip_file);
+            let options = FileOptions::default().compression_method(CompressionMethod::Stored);
 
-        for name in file_names {
-            zip.start_file(name.as_str(), options)?;
-            let mut file = fs::File::open(chapter_dir.join(name))?;
-            io::copy(&mut file, &mut zip)?;
-        }
+            for name in file_names {
+                zip.start_file(name.as_str(), options)?;
+                let mut file = fs::File::open(chapter_dir.join(name))?;
+                io::copy(&mut file, &mut zip)?;
+            }
 
-        // `finish` hands back the underlying file; drop it so the handle is
-        // closed before the rename, for the same reason as in download_images.
-        // `zip` is bound after `part`, so on an error path it is dropped — and
-        // the handle closed — before `part` removes the partial archive.
-        drop(zip.finish()?);
-        part.commit()?;
+            // Finish explicitly rather than leaving it to `ZipWriter`'s `Drop`,
+            // which has nowhere to report a failure to write out the central
+            // directory. The handle itself is owned — and closed — by
+            // `write_atomic`.
+            zip.finish()?;
+            Ok(())
+        })?;
         // The .cbz is already in place; failing to clean up the now-redundant
         // image directory must not report the chapter as failed. Warn instead.
         if let Err(e) = fs::remove_dir_all(chapter_dir) {
