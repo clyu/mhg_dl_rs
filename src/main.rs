@@ -19,12 +19,12 @@ use std::{
     num::ParseIntError,
     path::{Path, PathBuf},
     process::ExitCode,
+    sync::LazyLock,
     thread,
     time::Duration,
 };
 use thiserror::Error;
 use zip::{result::ZipError, write::FileOptions, CompressionMethod, ZipWriter};
-use std::sync::LazyLock;
 
 const HOST: &str = "https://tw.manhuagui.com";
 const TUNNEL_CHANNELS: [&str; 3] = ["i", "eu", "us"];
