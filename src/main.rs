@@ -453,6 +453,13 @@ fn wait_for_space() -> Result<bool> {
             _ => {}
         }
     };
+    // Drop anything already typed ahead of the key that ended the wait, while
+    // raw mode still owns the input. A user answering this prompt with "q" and
+    // Enter would otherwise leave the newline in the terminal buffer, where the
+    // next prompt reads it as a blank line and answers with a spurious
+    // "Invalid selection". A zero timeout only takes what has already arrived,
+    // so this never waits on a user who typed nothing more.
+    while event::poll(Duration::ZERO).unwrap_or(false) && event::read().is_ok() {}
     let _ = terminal::disable_raw_mode();
     result
 }
