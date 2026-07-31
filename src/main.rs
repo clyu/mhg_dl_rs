@@ -508,13 +508,27 @@ fn fetch_html(client: &Client, url: &str, referer: &str) -> Result<String> {
         .text()?)
 }
 
-/// Wait for a single key press in raw mode. Returns `Ok(true)` for SPACE and
-/// `Ok(false)` for any other key. Raw mode swallows Ctrl+C instead of raising
-/// SIGINT, so it is detected here and reported as `AppError::Interrupted`.
-fn wait_for_space() -> Result<bool> {
+/// Ask whether to fetch the next page of search results, waiting for a single
+/// key press in raw mode. Returns `Ok(true)` for SPACE and `Ok(false)` for any
+/// other key. Raw mode swallows Ctrl+C instead of raising SIGINT, so it is
+/// detected here and reported as `AppError::Interrupted`.
+///
+/// The prompt is drawn only once raw mode is on, so that a run with no terminal
+/// to read a key from — a CI job, a redirected stdin with no controlling tty —
+/// says why it is stopping. Drawing a prompt that cannot be answered and then
+/// stopping anyway is indistinguishable from the search having run out of
+/// results. Whether the pager works is decided by the raw mode attempt itself
+/// and not by testing stdin: crossterm reads keys from the controlling terminal,
+/// which is still there when only stdin has been redirected.
+fn prompt_for_next_page() -> Result<bool> {
     if terminal::enable_raw_mode().is_err() {
+        println!("--- More results available, but there is no terminal to read a key from ---");
         return Ok(false);
     }
+    print!("--- Press SPACE for next page, any other key to stop ---");
+    // A prompt that fails to flush is not worth abandoning the search over, and
+    // returning here would leave the terminal in raw mode.
+    let _ = io::stdout().flush();
     let result = loop {
         match event::read() {
             Ok(Event::Key(KeyEvent {
@@ -544,6 +558,9 @@ fn wait_for_space() -> Result<bool> {
     // so this never waits on a user who typed nothing more.
     while event::poll(Duration::ZERO).unwrap_or(false) && event::read().is_ok() {}
     let _ = terminal::disable_raw_mode();
+    // Only now: in raw mode a newline moves down without returning to column 0,
+    // so the line after this prompt would start under its right-hand end.
+    println!();
     result
 }
 
@@ -1004,11 +1021,7 @@ fn interactive_search<R: io::BufRead>(
 
         next_url = match maybe_next {
             Some(href) => {
-                print!("--- Press SPACE for next page, any other key to stop ---");
-                io::stdout().flush()?;
-                let advance = wait_for_space();
-                println!();
-                if advance? {
+                if prompt_for_next_page()? {
                     Some(resolve_url(&href)?)
                 } else {
                     None
