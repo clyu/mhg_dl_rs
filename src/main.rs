@@ -192,7 +192,9 @@ struct Chapter {
 
 struct Comic {
     client: Client,
-    tunnel: String,
+    /// Image host, parsed once so a page's `path` is resolved against it rather
+    /// than concatenated onto it. See `Comic::image_url`.
+    tunnel: Url,
     delay: Duration,
     title: String,
     chapters: Vec<Chapter>,
@@ -405,17 +407,23 @@ fn build_client() -> Result<Client> {
         .build()?)
 }
 
+/// Resolve `href` against `base`. Pages are joined against the site root and
+/// images against their tunnel host, but both need the same thing out of it:
+/// whatever the href carries raw comes back percent-encoded, and an href that
+/// is already absolute replaces the base instead of being appended to it.
+fn join_url(base: &Url, href: &str) -> Result<Url> {
+    base.join(href)
+        .map_err(|e| AppError::ContentParsing(format!("Invalid URL '{href}': {e}")))
+}
+
 /// Resolve a link taken off a page against the site root.
 ///
 /// The search pager emits site-relative hrefs that still carry raw UTF-8, e.g.
-/// `/s/金田一_p2.html`. Joining percent-encodes them, which matters twice over:
-/// the resolved URL is requested, and on the next iteration it is handed back as
-/// the `referer` header, where non-ASCII bytes have no business being. Joining
-/// also keeps an absolute href working instead of concatenating it onto `HOST`.
+/// `/s/金田一_p2.html`. Encoding them matters twice over: the resolved URL is
+/// requested, and on the next iteration it is handed back as the `referer`
+/// header, where non-ASCII bytes have no business being.
 fn resolve_url(href: &str) -> Result<Url> {
-    HOST_URL
-        .join(href)
-        .map_err(|e| AppError::ContentParsing(format!("Invalid URL '{href}': {e}")))
+    join_url(&HOST_URL, href)
 }
 
 /// Fetch a page the way a browser fetches a top-level document; see
@@ -577,7 +585,11 @@ impl Comic {
         let book_dir = args.output_dir.join(&book_safe);
         Ok(Comic {
             client,
-            tunnel: format!("https://{}.hamreus.com", TUNNEL_CHANNELS[args.tunnel]),
+            // Built from a static channel name, so this parses or the channel
+            // table is wrong — a bad base is a bug here, not a page's doing,
+            // and failing per image request would report it 48 times over.
+            tunnel: Url::parse(&format!("https://{}.hamreus.com", TUNNEL_CHANNELS[args.tunnel]))
+                .expect("TUNNEL_CHANNELS entries form valid absolute URLs"),
             delay: Duration::from_millis(args.delay_ms),
             title,
             chapters,
@@ -642,6 +654,23 @@ impl Comic {
         unpack_packed(frame, a, c, &data)
     }
 
+    /// The tunnel URL of a single page.
+    ///
+    /// `path` and `file` are read out of the chapter's JSON, so they are joined
+    /// onto the tunnel through `Url` rather than concatenated as text: a `path`
+    /// arriving without its leading slash would otherwise be glued straight onto
+    /// the host name, turning every page of the chapter into a DNS failure that
+    /// names a host nobody wrote.
+    fn image_url(&self, path: &str, file: &str) -> Result<Url> {
+        // Anchored at exactly one leading slash, which is what makes this an
+        // absolute path on the tunnel host no matter what the page supplied:
+        // none would resolve relative to the base, and two would make it
+        // protocol-relative, handing the request to a host of the page's
+        // choosing.
+        let joined = format!("{path}{file}");
+        join_url(&self.tunnel, &format!("/{}", joined.trim_start_matches('/')))
+    }
+
     /// Download every page of `chap` into `chapter_dir`, skipping pages that are
     /// already there. Returns the page file names in reading order, which is what
     /// `compress_chapter` packs.
@@ -651,7 +680,6 @@ impl Comic {
         let mut names = Vec::with_capacity(chap.files.len());
         let mut needs_delay = false;
         for (i, file) in chap.files.iter().enumerate() {
-            let url = format!("{}{}{}", self.tunnel, chap.path, file);
             let file_safe = sanitize(file);
             let fname = format!("{:0width$}_{}", i, file_safe, width = width);
             let dst = chapter_dir.join(&fname);
@@ -666,9 +694,12 @@ impl Comic {
             if needs_delay {
                 thread::sleep(rand::rng().random_range(self.delay / 2..=self.delay * 3 / 2));
             }
+            // Built here rather than above the skip: a chapter already complete
+            // on disk has no reason to fail over a page URL it never requests.
+            let url = self.image_url(&chap.path, file)?;
             let mut resp = self
                 .client
-                .get(&url)
+                .get(url)
                 .header("accept", "image/webp,image/apng,image/*,*/*;q=0.8")
                 .header("priority", "u=4")
                 .header("referer", chapter_url)

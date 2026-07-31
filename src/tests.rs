@@ -7,6 +7,21 @@ fn load_test_html(filename: &str) -> String {
         .unwrap_or_else(|_| panic!("Failed to load test file: {}", test_data_path))
 }
 
+/// A `Comic` with everything but the tunnel and the output directory stubbed
+/// out. That is all the download-side methods read, and building one by hand at
+/// every call site only invites the copies to drift apart.
+fn test_comic(tunnel: &str, book_dir: &Path) -> Comic {
+    Comic {
+        client: reqwest::blocking::Client::new(),
+        tunnel: Url::parse(tunnel).expect("test tunnel must be a valid absolute URL"),
+        delay: Duration::from_millis(0),
+        title: "Test Comic".to_string(),
+        chapters: vec![],
+        book_safe: "Test Comic".to_string(),
+        book_dir: book_dir.to_path_buf(),
+    }
+}
+
 #[test]
 fn test_parse_id() {
     // Test pure numeric ID
@@ -700,6 +715,42 @@ fn test_sanitize_trims_and_never_returns_empty() {
 }
 
 #[test]
+fn test_image_url_anchors_the_page_path_on_the_tunnel() {
+    let comic = test_comic("https://i.hamreus.com", Path::new("."));
+
+    // The ordinary shape: an absolute path from the chapter JSON plus a file
+    // name from its `files` array.
+    assert_eq!(
+        comic.image_url("/ps3/l/foo/", "001.jpg.webp").unwrap().as_str(),
+        "https://i.hamreus.com/ps3/l/foo/001.jpg.webp"
+    );
+
+    // A path arriving without its leading slash must still land on the tunnel.
+    // Concatenation produced the host "i.hamreus.comps3" here.
+    assert_eq!(
+        comic.image_url("ps3/l/foo/", "001.jpg.webp").unwrap().as_str(),
+        "https://i.hamreus.com/ps3/l/foo/001.jpg.webp"
+    );
+
+    // A protocol-relative "//host" is a path, not a new host: the page does not
+    // get to redirect the download somewhere else.
+    let url = comic.image_url("//evil.example/", "001.jpg.webp").unwrap();
+    assert_eq!(url.host_str(), Some("i.hamreus.com"));
+    assert_eq!(
+        url.as_str(),
+        "https://i.hamreus.com/evil.example/001.jpg.webp"
+    );
+
+    // Raw UTF-8 comes back percent-encoded, as it does for page links.
+    let url = comic.image_url("/ps3/第01話/", "001.jpg.webp").unwrap();
+    assert_eq!(
+        url.as_str(),
+        "https://i.hamreus.com/ps3/%E7%AC%AC01%E8%A9%B1/001.jpg.webp"
+    );
+    assert!(url.as_str().is_ascii());
+}
+
+#[test]
 fn test_download_incomplete_file() {
     use std::net::TcpListener;
     use std::io::{Read, Write};
@@ -728,16 +779,7 @@ fn test_download_incomplete_file() {
     let chapter_dir = temp_dir.path().to_path_buf();
     let bar = ProgressBar::hidden();
 
-    let client = reqwest::blocking::Client::new();
-    let comic = Comic {
-        client,
-        tunnel: format!("http://127.0.0.1:{}", port),
-        delay: Duration::from_millis(0),
-        title: "Test Comic".to_string(),
-        chapters: vec![],
-        book_safe: "Test Comic".to_string(),
-        book_dir: temp_dir.path().to_path_buf(),
-    };
+    let comic = test_comic(&format!("http://127.0.0.1:{}", port), temp_dir.path());
 
     let chap = ChapterStruct {
         sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
@@ -781,16 +823,7 @@ fn test_download_resume_logic() {
     let original_content = "already here";
     fs::write(&existing_file, original_content).unwrap();
 
-    let client = reqwest::blocking::Client::new();
-    let comic = Comic {
-        client,
-        tunnel: "http://invalid-host-should-not-be-reached".to_string(),
-        delay: Duration::from_millis(0),
-        title: "Test Comic".to_string(),
-        chapters: vec![],
-        book_safe: "Test Comic".to_string(),
-        book_dir: temp_dir.path().to_path_buf(),
-    };
+    let comic = test_comic("http://invalid-host-should-not-be-reached", temp_dir.path());
 
     let chap = ChapterStruct {
         sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
