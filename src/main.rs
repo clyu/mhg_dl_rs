@@ -6,7 +6,7 @@ use crossterm::{
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::{
     blocking::Client,
-    header::{HeaderMap, InvalidHeaderValue},
+    header::{HeaderMap, HeaderValue},
     Url,
 };
 use scraper::{Html, Selector};
@@ -102,8 +102,6 @@ enum AppError {
     Io(#[from] io::Error),
     #[error("Network request error: {0}")]
     Reqwest(#[from] reqwest::Error),
-    #[error("Invalid HTTP header: {0}")]
-    InvalidHeader(#[from] InvalidHeaderValue),
     #[error("JSON parsing error: {0}")]
     SerdeJson(#[from] serde_json::Error),
     #[error("Integer parsing error: {0}")]
@@ -376,7 +374,10 @@ fn build_client() -> Result<Client> {
         ("sec-gpc", "1"),
         ("user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"),
     ] {
-        headers.insert(key, value.parse()?);
+        // Both halves are `&'static str` literals, so both conversions are
+        // infallible in practice and panic on a typo rather than turning a bug
+        // in this table into a runtime error the user has to interpret.
+        headers.insert(key, HeaderValue::from_static(value));
     }
     // Without timeouts a connection that stalls after the handshake hangs the
     // download forever; the request timeout covers reading the response body,
