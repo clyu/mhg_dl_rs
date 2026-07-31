@@ -70,7 +70,6 @@ static SEL_TITLE: LazyLock<Selector> =
 /// simply not matched, rather than aborting the whole book's parse.
 static SEL_CHAPTER_LINK: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("a[href][title]").unwrap());
-static SEL_UL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("ul").unwrap());
 static SEL_PAGER_LINKS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("div.pager a").unwrap());
 static SEL_VIEWSTATE: LazyLock<Selector> =
@@ -426,12 +425,20 @@ fn group_for_list(list_elem: scraper::ElementRef<'_>) -> String {
 ///
 /// Do not collapse this into a single `ul a` selector and do not hoist the
 /// reverse up to the whole `.chapter-list` — either change silently scrambles
-/// chapter order across pager boundaries.
+/// chapter order across pager boundaries. For the same reason the `ul`s are
+/// taken as direct children rather than with a descendant selector: a nested
+/// `ul` would otherwise be visited twice, once through its parent block and
+/// once as a block of its own, duplicating its links and splitting the
+/// enclosing block's reverse into pieces.
 fn extract_chapters_with_groups(document: &Html) -> Vec<Chapter> {
     let mut chapters = Vec::new();
     for list_elem in document.select(&SEL_CHAPTER_LIST) {
         let group = group_for_list(list_elem);
-        for ul_elem in list_elem.select(&SEL_UL) {
+        let uls = list_elem
+            .children()
+            .filter_map(scraper::ElementRef::wrap)
+            .filter(|e| e.value().name() == "ul");
+        for ul_elem in uls {
             let start = chapters.len();
             chapters.extend(ul_elem.select(&SEL_CHAPTER_LINK).filter_map(|element| {
                 let element = element.value();
