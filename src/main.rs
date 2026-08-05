@@ -491,13 +491,20 @@ fn resolve_url(href: &str) -> Result<Url> {
 /// Fetch a page the way a browser fetches a top-level document; see
 /// `build_client` for why the document-shaped headers live here rather than in
 /// the client defaults.
-fn fetch_html(client: &Client, url: &str, referer: &str) -> Result<String> {
+///
+/// Both URLs arrive as `Url` rather than as text, which is what keeps a raw
+/// href from ever reaching the `referer` header: every one of them has been
+/// through `resolve_url`, and percent-encoding is that function's whole point.
+/// A header value cannot carry the non-ASCII bytes the search pager writes.
+fn fetch_html(client: &Client, url: &Url, referer: &Url) -> Result<String> {
     Ok(client
-        .get(url)
+        // Cloned rather than handed over as a string: `IntoUrl` takes a `Url`
+        // as it is and re-parses a `&str`.
+        .get(url.clone())
         .header("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         .header("cookie", "country=TW")
         .header("priority", "u=0, i")
-        .header("referer", referer)
+        .header("referer", referer.as_str())
         .header("sec-fetch-dest", "document")
         .header("sec-fetch-mode", "navigate")
         .header("sec-fetch-site", "same-origin")
@@ -658,7 +665,7 @@ impl Comic {
     /// have come from `--search` instead of the positional URL.
     fn new(id: usize, client: Client, args: &Args) -> Result<Self> {
         let url = resolve_url(&format!("/comic/{id}"))?;
-        let res = fetch_html(&client, url.as_str(), HOST_URL.as_str())?;
+        let res = fetch_html(&client, &url, &HOST_URL)?;
         let (title, chapters) = Self::parse_comic_html(&res)?;
         let book_safe = sanitize(&title);
         let book_dir = args.output_dir.join(&book_safe);
@@ -713,8 +720,8 @@ impl Comic {
         Ok((title, chapters))
     }
 
-    fn get_chapter(&self, url: &str) -> Result<ChapterStruct> {
-        let text = fetch_html(&self.client, url, HOST_URL.as_str())?;
+    fn get_chapter(&self, url: &Url) -> Result<ChapterStruct> {
+        let text = fetch_html(&self.client, url, &HOST_URL)?;
         Self::parse_chapter_html(&text)
     }
 
@@ -883,7 +890,7 @@ impl Comic {
             return Ok(false);
         }
         let chapter_url = resolve_url(href)?;
-        let chap = self.get_chapter(chapter_url.as_str())?;
+        let chap = self.get_chapter(&chapter_url)?;
         let chapter_dir = self.book_dir.join(&chap_safe);
         fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
@@ -1014,7 +1021,7 @@ fn interactive_search<R: io::BufRead>(
 
     while let Some(url) = next_url {
         let (page_results, maybe_next) =
-            parse_search_results(&fetch_html(client, url.as_str(), referer.as_str())?);
+            parse_search_results(&fetch_html(client, &url, &referer)?);
         referer = url;
         let offset = all_results.len();
         for (i, r) in page_results.iter().enumerate() {
