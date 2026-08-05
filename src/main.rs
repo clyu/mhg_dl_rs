@@ -890,21 +890,24 @@ impl Comic {
         bar.set_style(BAR_STYLE.clone());
         bar.set_message(name.clone());
 
-        match self
-            .download_images(&chap, &chapter_dir, &bar, chapter_url.as_str())
-            .and_then(|names| Self::compress_chapter(&chapter_dir, &names, &zip_path))
-        {
-            Ok(()) => {
+        // Release the bar's draw state before compressing, not after. indicatif
+        // draws to stderr, so anything written while the bar still owns its line
+        // lands on top of it — and `compress_chapter` warns there when it cannot
+        // remove the page directory. The bar has reached its final position by
+        // this point either way, so there is nothing left for it to draw.
+        let names = match self.download_images(&chap, &chapter_dir, &bar, chapter_url.as_str()) {
+            Ok(names) => {
                 bar.finish();
-                Ok(true)
+                names
             }
             Err(e) => {
-                // Release the bar's draw state so the caller's error message
-                // prints on its own line instead of over the unfinished bar.
+                // Same reason, for the caller's error message.
                 bar.abandon();
-                Err(e)
+                return Err(e);
             }
-        }
+        };
+        Self::compress_chapter(&chapter_dir, &names, &zip_path)?;
+        Ok(true)
     }
 }
 
