@@ -720,11 +720,8 @@ impl Comic {
         Ok((title, chapters))
     }
 
-    fn get_chapter(&self, url: &Url) -> Result<ChapterStruct> {
-        let text = fetch_html(&self.client, url, &HOST_URL)?;
-        Self::parse_chapter_html(&text)
-    }
-
+    /// The seam the chapter tests drive: fetching is `download_chapter`'s job,
+    /// so everything below this line works off page text alone.
     fn parse_chapter_html(html: &str) -> Result<ChapterStruct> {
         let caps = RE_CHAPTER_DATA
             .captures(html)
@@ -890,7 +887,8 @@ impl Comic {
             return Ok(false);
         }
         let chapter_url = resolve_url(href)?;
-        let chap = self.get_chapter(&chapter_url)?;
+        let html = fetch_html(&self.client, &chapter_url, &HOST_URL)?;
+        let chap = Self::parse_chapter_html(&html)?;
         let chapter_dir = self.book_dir.join(&chap_safe);
         fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
