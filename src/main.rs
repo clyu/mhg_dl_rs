@@ -644,11 +644,11 @@ fn extract_chapters_with_groups(document: &Html) -> Vec<Chapter> {
             .filter(|e| e.value().name() == "ul");
         for ul_elem in uls {
             let start = chapters.len();
-            chapters.extend(ul_elem.select(&SEL_CHAPTER_LINK).filter_map(|element| {
-                let element = element.value();
+            chapters.extend(ul_elem.select(&SEL_CHAPTER_LINK).filter_map(|link_elem| {
+                let link = link_elem.value();
                 Some(Chapter {
-                    name: element.attr("title")?.to_string(),
-                    href: element.attr("href")?.to_string(),
+                    name: link.attr("title")?.to_string(),
+                    href: link.attr("href")?.to_string(),
                     group: group.clone(),
                 })
             }));
