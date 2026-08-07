@@ -587,7 +587,8 @@ fn search_result_from_item(li: scraper::ElementRef<'_>) -> Option<SearchResult> 
 
 /// Extract one page of search hits plus the href of the "next page" pager link,
 /// if the page has one. A page with no recognizable results is not an error
-/// here — `interactive_search` decides that only after the last page.
+/// here — `interactive_search` stops paging when it sees one, and reports the
+/// search as empty only if no page yielded anything at all.
 fn parse_search_results(html: &str) -> (Vec<SearchResult>, Option<String>) {
     let document = Html::parse_document(html);
 
@@ -1028,6 +1029,16 @@ fn interactive_search<R: io::BufRead>(
         let offset = all_results.len();
         for (i, r) in page_results.iter().enumerate() {
             println!("{}. {}", offset + i + 1, r.title);
+        }
+        // A page that parsed to no results ends the paging, whatever its pager
+        // offers: a genuine "no hits" page has nothing to page through, and if
+        // the result selector has instead gone stale against a redesign, every
+        // page parses to nothing — without this the pager would keep asking the
+        // user to press SPACE for another screen of nothing. Breaking keeps
+        // whatever earlier pages did parse; the check below turns a search that
+        // parsed nothing at all into `NoSearchResults`.
+        if page_results.is_empty() {
+            break;
         }
         all_results.extend(page_results);
 
