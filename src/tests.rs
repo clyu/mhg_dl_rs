@@ -125,8 +125,9 @@ fn test_unpack_packed() {
 #[test]
 fn test_unpack_packed_base_out_of_range() {
     let frame = "{}";
-    // Two dictionary entries, so `encode` is reached with a non-zero value:
-    // `encode(0, _)` returns early and would exercise neither low-base failure.
+    // Two dictionary entries, so `encode` is reached with a value above zero:
+    // `encode(0, 1)` divides once and terminates, and so would never reach the
+    // base-1 hang on its own.
     let c = 2;
     let data = vec!["dummy", "dummy2"];
 

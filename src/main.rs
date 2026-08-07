@@ -303,18 +303,27 @@ fn unpack_packed(
     data: &[&str],
 ) -> Result<ChapterStruct> {
     const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    // `encode` relies on the base being validated once up front.
+    // The dictionary key the packed script gives word number `value`: its
+    // digits in base `base`, most significant first. Relies on the base having
+    // been validated once up front.
     fn encode(mut value: usize, base: usize) -> String {
-        if value == 0 {
-            return "0".to_string();
-        }
-        let mut res = String::new();
-        while value > 0 {
-            let rem = value % base;
-            res.insert(0, DIGITS.as_bytes()[rem] as char);
+        // Division hands the digits back least significant first, so they are
+        // collected that way and flipped once at the end — inserting each at
+        // the front instead would shift everything collected so far. Dividing
+        // before testing `value` is also what gives `encode(0, _)` its "0",
+        // with no special case of its own.
+        let mut digits = Vec::new();
+        loop {
+            digits.push(DIGITS.as_bytes()[value % base]);
             value /= base;
+            if value == 0 {
+                break;
+            }
         }
-        res
+        digits.reverse();
+        // Every byte was indexed out of `DIGITS`, which is ASCII throughout, so
+        // this hands the buffer over as the string rather than copying it.
+        String::from_utf8(digits).expect("DIGITS is ASCII")
     }
     if a < 2 || a > DIGITS.len() {
         return Err(AppError::ContentParsing(format!(
