@@ -23,6 +23,13 @@ fn test_comic(tunnel: &str, book_dir: &Path) -> Comic {
     }
 }
 
+/// The chapter page a download sends back as its `referer`. None of the mock
+/// servers below look at it, so one stand-in serves every call site — it is
+/// here as a `Url` because that is what `download_images` takes.
+fn test_referer() -> Url {
+    Url::parse("http://localhost/chapter").expect("test referer must be a valid absolute URL")
+}
+
 /// A chapter served straight off the tunnel root. `files` stays a parameter
 /// rather than being baked in because the page names the download tests assert
 /// on are zero-padded to the width of the page count, so how many pages a
@@ -889,7 +896,7 @@ fn test_download_rejects_non_image_body() {
     let chap = test_chapter(&["test.jpg"]);
 
     let err = comic
-        .download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter")
+        .download_images(&chap, &chapter_dir, &bar, &test_referer())
         .expect_err("an HTML body must not be accepted as a page");
     assert!(
         err.to_string().contains("is not an image"),
@@ -941,7 +948,7 @@ fn test_download_incomplete_file() {
     let chap = test_chapter(&["test.jpg"]);
 
     // 3. Execute download and verify result
-    let result = comic.download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter");
+    let result = comic.download_images(&chap, &chapter_dir, &bar, &test_referer());
 
     assert!(result.is_err());
     let err_msg = format!("{}", result.unwrap_err());
@@ -981,7 +988,7 @@ fn test_download_resume_logic() {
 
     // If the logic is correct, it will see 0_test.jpg exists and skip network calls.
     // If it attempts to download, it will fail because the tunnel host is invalid.
-    let result = comic.download_images(&chap, &chapter_dir, &bar, "http://localhost/chapter");
+    let result = comic.download_images(&chap, &chapter_dir, &bar, &test_referer());
 
     assert!(result.is_ok(), "Should skip existing file and return Ok, but got error");
     // Skipped pages still have to be reported, or compress_chapter would omit them.

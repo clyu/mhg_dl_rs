@@ -798,7 +798,18 @@ impl Comic {
     /// Download every page of `chap` into `chapter_dir`, skipping pages that are
     /// already there. Returns the page file names in reading order, which is what
     /// `compress_chapter` packs.
-    fn download_images(&self, chap: &ChapterStruct, chapter_dir: &Path, bar: &ProgressBar, chapter_url: &str) -> Result<Vec<String>> {
+    ///
+    /// `chapter_url` is the page these images hang off, sent back as the
+    /// `referer` the tunnel checks. It arrives as a `Url` for the reason
+    /// `fetch_html`'s referer does: only `resolve_url`'s output reaches a header
+    /// value, and a header value cannot carry raw non-ASCII bytes.
+    fn download_images(
+        &self,
+        chap: &ChapterStruct,
+        chapter_dir: &Path,
+        bar: &ProgressBar,
+        chapter_url: &Url,
+    ) -> Result<Vec<String>> {
         let width = chap.files.len().saturating_sub(1).to_string().len();
         let e_str = chap.sl.e.to_string();
         let mut names = Vec::with_capacity(chap.files.len());
@@ -826,7 +837,7 @@ impl Comic {
                 .get(url)
                 .header("accept", "image/webp,image/apng,image/*,*/*;q=0.8")
                 .header("priority", "u=4")
-                .header("referer", chapter_url)
+                .header("referer", chapter_url.as_str())
                 .header("sec-fetch-dest", "image")
                 .header("sec-fetch-mode", "no-cors")
                 .header("sec-fetch-site", "cross-site")
@@ -948,7 +959,7 @@ impl Comic {
         // lands on top of it — and `compress_chapter` warns there when it cannot
         // remove the page directory. The bar has reached its final position by
         // this point either way, so there is nothing left for it to draw.
-        let names = match self.download_images(&chap, &chapter_dir, &bar, chapter_url.as_str()) {
+        let names = match self.download_images(&chap, &chapter_dir, &bar, &chapter_url) {
             Ok(names) => {
                 bar.finish();
                 names
