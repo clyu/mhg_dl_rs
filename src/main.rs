@@ -1097,7 +1097,15 @@ fn run() -> Result<()> {
         let should_pause = match comic.download_chapter(idx) {
             Ok(downloaded) => downloaded,
             Err(e) => {
-                eprintln!("Failed to download chapter {}: {}", idx + 1, e);
+                // Named as well as numbered: a selection like "1-3,50" reports
+                // failures out of order and far apart, and the number alone
+                // means scrolling back to the listing to find out what broke.
+                eprintln!(
+                    "Failed to download chapter {} ({}): {}",
+                    idx + 1,
+                    comic.chapters[idx].name,
+                    e
+                );
                 true
             }
         };
