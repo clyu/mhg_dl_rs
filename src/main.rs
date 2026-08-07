@@ -408,7 +408,7 @@ const MAX_NAME_BYTES: usize = 120;
 /// rather than as one overwriting another.
 fn sanitize(s: &str) -> String {
     let replaced = RE_ILLEGAL_CHARS.replace_all(s, "_");
-    let trimmed = replaced.trim().trim_end_matches(['.', ' ']);
+    let trimmed = replaced.trim();
     // Cut at the last char boundary at or below the budget: slicing a multi-byte
     // character in half would panic, and `floor_char_boundary` is still
     // unstable. At most three steps, since a UTF-8 sequence is at most 4 bytes.
@@ -421,8 +421,12 @@ fn sanitize(s: &str) -> String {
     } else {
         trimmed
     };
-    // The cut can expose a trailing dot or space that the trim above had no
-    // reason to touch, and Windows rejects a name ending in either.
+    // The only place a trailing dot or space is stripped — Windows rejects a
+    // name ending in either, and the cut above can expose one that was not at
+    // the end before. Trimming before the cut as well would change nothing:
+    // dots and spaces are single-byte, so a trailing run of them is either cut
+    // away with the rest of the overflow, or survives the cut and is removed
+    // right here.
     let bounded = bounded.trim_end_matches(['.', ' ']);
     if bounded.is_empty() {
         "_".to_string()
