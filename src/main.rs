@@ -208,10 +208,16 @@ struct Comic {
 /// directly.
 ///
 /// Dropping the guard without a successful `commit` deletes the partial file.
-/// Without that, every exit between creating it and the final rename — a
-/// stalled transfer, a short read, a page missing from disk, the rename itself
-/// — would leave a stray `.part` behind, in a directory that is otherwise only
-/// cleaned up on the success path.
+/// Without that, every *unwinding* exit between creating it and the final
+/// rename — a stalled transfer, a short read, a page missing from disk, the
+/// rename itself — would leave a stray `.part` behind, in a directory that is
+/// otherwise only cleaned up on the success path.
+///
+/// Ctrl+C during a download is the exception, and it is not covered: SIGINT
+/// ends the process without running `Drop`, so that `.part` does survive. It is
+/// inert — `create` truncates a leftover, and `compress_chapter` packs the page
+/// list `download_images` returned rather than the directory, so a stray
+/// `.part` can neither be resumed from nor reach the archive.
 struct PartFile {
     part: PathBuf,
     dst: PathBuf,
@@ -384,11 +390,16 @@ fn unpack_packed(
 ///
 /// The limit that actually matters belongs to the file system — 255 bytes per
 /// path component on ext4 and APFS, 255 UTF-16 units on NTFS — and the longest
-/// component this program builds is a chapter's archive, `{book}_{chapter}.cbz`,
-/// which spends two sanitized names at once. Budgeting each at 120 keeps that
-/// under the limit with room to spare (120 + 1 + 120 + 4 = 245), and 245 bytes
-/// of CJK is well under 255 UTF-16 units too. A page file name, one sanitized
-/// name behind a short index, is nowhere near it.
+/// component this program builds is a chapter's archive *while it is still
+/// being written*, `{book}_{chapter}.cbz.part`: two sanitized names at once,
+/// plus the suffix `write_atomic` appends. Budgeting each at 120 keeps that
+/// under the limit (120 + 1 + 120 + 4 + 5 = 250), and 250 bytes of CJK is well
+/// under 255 UTF-16 units too. A page file name, one sanitized name behind a
+/// short index, is nowhere near it even with the suffix.
+///
+/// Counting those last 5 bytes is what pins the ceiling at 122 rather than the
+/// 125 the finished name alone would allow, and the failure they buy off lands
+/// on the temporary file — before the name it would be renamed to ever exists.
 ///
 /// Without a bound a long title is not a cosmetic problem: the create fails with
 /// `ENAMETOOLONG`, and it fails again on every later run, so the chapter can
@@ -823,6 +834,13 @@ impl Comic {
                 .send()?
                 .error_for_status()?;
 
+            // `None` unless the response carries an exact length: a chunked
+            // transfer has none, and neither does a body reqwest decoded for us
+            // — the client advertises gzip/deflate/br, and a decoded body
+            // reports no exact size. So the length check below is a second line
+            // of defence rather than the only one; the transport itself errors
+            // on a connection that closes mid-body, which is why
+            // `test_download_incomplete_file` accepts either message.
             let content_length = resp.content_length();
             // Both checks belong inside the closure: returning `Ok` is what
             // renames the file into place, and a truncated or non-image page
