@@ -519,6 +519,28 @@ fn fetch_html(client: &Client, url: &Url, referer: &Url) -> Result<String> {
         .text()?)
 }
 
+/// Raw mode for as long as the guard lives.
+///
+/// The prompt below is written with `print!`, which panics when stdout cannot
+/// be written to — a closed pipe is enough. Without a guard, that panic would
+/// unwind straight past `disable_raw_mode` and leave raw mode on for whatever
+/// the user runs in that terminal next.
+struct RawMode;
+
+impl RawMode {
+    /// `None` when there is no terminal to switch into raw mode, which is the
+    /// one case the caller has to report rather than recover from.
+    fn enable() -> Option<Self> {
+        terminal::enable_raw_mode().ok().map(|()| RawMode)
+    }
+}
+
+impl Drop for RawMode {
+    fn drop(&mut self) {
+        let _ = terminal::disable_raw_mode();
+    }
+}
+
 /// Ask whether to fetch the next page of search results, waiting for a single
 /// key press in raw mode. Returns `Ok(true)` for SPACE and `Ok(false)` for any
 /// other key. Raw mode swallows Ctrl+C instead of raising SIGINT, so it is
@@ -532,13 +554,13 @@ fn fetch_html(client: &Client, url: &Url, referer: &Url) -> Result<String> {
 /// and not by testing stdin: crossterm reads keys from the controlling terminal,
 /// which is still there when only stdin has been redirected.
 fn prompt_for_next_page() -> Result<bool> {
-    if terminal::enable_raw_mode().is_err() {
+    let Some(raw) = RawMode::enable() else {
         println!("--- More results available, but there is no terminal to read a key from ---");
         return Ok(false);
-    }
+    };
     print!("--- Press SPACE for next page, any other key to stop ---");
-    // A prompt that fails to flush is not worth abandoning the search over, and
-    // returning here would leave the terminal in raw mode.
+    // A prompt that fails to flush is not worth abandoning the search over: the
+    // key press is readable either way.
     let _ = io::stdout().flush();
     let result = loop {
         match event::read() {
@@ -568,9 +590,12 @@ fn prompt_for_next_page() -> Result<bool> {
     // "Invalid selection". A zero timeout only takes what has already arrived,
     // so this never waits on a user who typed nothing more.
     while event::poll(Duration::ZERO).unwrap_or(false) && event::read().is_ok() {}
-    let _ = terminal::disable_raw_mode();
-    // Only now: in raw mode a newline moves down without returning to column 0,
-    // so the line after this prompt would start under its right-hand end.
+    // Leave raw mode before the newline, not after: in raw mode a newline moves
+    // down without returning to column 0, so the line following this prompt
+    // would start under its right-hand end. Dropping the guard by hand is what
+    // orders the two — letting it fall off the end of the function instead
+    // would put the newline first.
+    drop(raw);
     println!();
     result
 }
