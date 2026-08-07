@@ -1015,17 +1015,41 @@ fn interactive_search<R: io::BufRead>(
 ) -> Result<usize> {
     let mut all_results: Vec<SearchResult> = Vec::new();
     let mut referer = HOST_URL.clone();
-    let mut next_url = Some(resolve_url(&format!(
-        "/s/{}.html",
-        urlencoding::encode(keyword)
-    ))?);
+    let mut next_href = Some(format!("/s/{}.html", urlencoding::encode(keyword)));
 
     println!("Search results for '{}':", keyword);
 
-    while let Some(url) = next_url {
-        let (page_results, maybe_next) =
-            parse_search_results(&fetch_html(client, &url, &referer)?);
+    while let Some(href) = next_href {
+        // Resolving the href and fetching what it points at are one fallible
+        // step, so that both ways of failing to reach a page — a connection
+        // that drops on the way to page 3, or an href the pager wrote that is
+        // not a page at all, such as the `javascript:;` some last pages carry
+        // — meet the one policy below instead of each growing its own.
+        let fetched = resolve_url(&href).and_then(|url| {
+            let html = fetch_html(client, &url, &referer)?;
+            Ok((url, html))
+        });
+        let (url, html) = match fetched {
+            Ok(page) => page,
+            // Results collected so far have already been printed and numbered,
+            // and the user can still pick one of them: discarding them over a
+            // page they have not asked for yet would mean running the whole
+            // search again. Stop paging and let the selection prompt run.
+            // The first page is the exception — with nothing to fall back on,
+            // its failure stays the error the run ends with.
+            Err(e) if !all_results.is_empty() => {
+                eprintln!(
+                    "Warning: could not load more results ({e}); \
+                     continuing with the {} found so far.",
+                    all_results.len()
+                );
+                break;
+            }
+            Err(e) => return Err(e),
+        };
         referer = url;
+
+        let (page_results, maybe_next) = parse_search_results(&html);
         let offset = all_results.len();
         for (i, r) in page_results.iter().enumerate() {
             println!("{}. {}", offset + i + 1, r.title);
@@ -1042,10 +1066,13 @@ fn interactive_search<R: io::BufRead>(
         }
         all_results.extend(page_results);
 
-        next_url = match maybe_next {
-            Some(href) => {
+        // Only the href is kept here; it is resolved at the top of the next
+        // iteration, where a href that turns out not to be a page is handled
+        // the same way as a page that cannot be reached.
+        next_href = match maybe_next {
+            Some(next) => {
                 if prompt_for_next_page()? {
-                    Some(resolve_url(&href)?)
+                    Some(next)
                 } else {
                     None
                 }
