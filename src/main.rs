@@ -510,12 +510,13 @@ fn join_url(base: &Url, href: &str) -> Result<Url> {
         .map_err(|e| AppError::ContentParsing(format!("Invalid URL '{href}': {e}")))
 }
 
-/// Resolve a link taken off a page against the site root.
+/// Resolve a link against the site root — for the hrefs whose base *is* the
+/// root: the comic landing page this program writes itself, and the chapter
+/// links that hang off it.
 ///
-/// The search pager emits site-relative hrefs that still carry raw UTF-8, e.g.
-/// `/s/金田一_p2.html`. Encoding them matters twice over: the resolved URL is
-/// requested, and on the next iteration it is handed back as the `referer`
-/// header, where non-ASCII bytes have no business being.
+/// A link read off a page whose own URL is in hand is joined against that page
+/// instead; see `interactive_search`, which resolves the pager's href against
+/// the result page it came from.
 fn resolve_url(href: &str) -> Result<Url> {
     join_url(&HOST_URL, href)
 }
@@ -526,7 +527,7 @@ fn resolve_url(href: &str) -> Result<Url> {
 ///
 /// Both URLs arrive as `Url` rather than as text, which is what keeps a raw
 /// href from ever reaching the `referer` header: every one of them has been
-/// through `resolve_url`, and percent-encoding is that function's whole point.
+/// through `join_url`, and percent-encoding is that function's whole point.
 /// A header value cannot carry the non-ASCII bytes the search pager writes.
 fn fetch_html(client: &Client, url: &Url, referer: &Url) -> Result<String> {
     Ok(client
@@ -818,7 +819,7 @@ impl Comic {
     ///
     /// `chapter_url` is the page these images hang off, sent back as the
     /// `referer` the tunnel checks. It arrives as a `Url` for the reason
-    /// `fetch_html`'s referer does: only `resolve_url`'s output reaches a header
+    /// `fetch_html`'s referer does: only `join_url`'s output reaches a header
     /// value, and a header value cannot carry raw non-ASCII bytes.
     fn download_images(
         &self,
@@ -1085,7 +1086,11 @@ fn interactive_search<R: io::BufRead>(
     keyword: &str,
 ) -> Result<usize> {
     let mut all_results: Vec<SearchResult> = Vec::new();
-    let mut referer = HOST_URL.clone();
+    // The page the current href was read off: both the base it resolves
+    // against and the `referer` the fetch sends. Seeded with the site root for
+    // the first href, which this function writes itself as a site-absolute
+    // path and so resolves the same way against either.
+    let mut from_page = HOST_URL.clone();
     let mut next_href = Some(format!("/s/{}.html", urlencoding::encode(keyword)));
 
     println!("Search results for '{}':", keyword);
@@ -1096,8 +1101,15 @@ fn interactive_search<R: io::BufRead>(
         // that drops on the way to page 3, or an href the pager wrote that is
         // not a page at all, such as the `javascript:;` some last pages carry
         // — meet the one policy below instead of each growing its own.
-        let fetched = resolve_url(&href).and_then(|url| {
-            let html = fetch_html(client, &url, &referer)?;
+        //
+        // The base is the page the href was read off, not the site root. The
+        // pager writes site-absolute hrefs today, for which the two agree; a
+        // document-relative one (`金田一_p2.html` rather than
+        // `/s/金田一_p2.html`) lands under `/s/` only against the page it came
+        // from. Getting that wrong would be quiet, too: the 404 it resolves to
+        // reaches the warning below and reads there as an early end of results.
+        let fetched = join_url(&from_page, &href).and_then(|url| {
+            let html = fetch_html(client, &url, &from_page)?;
             Ok((url, html))
         });
         let (url, html) = match fetched {
@@ -1118,7 +1130,7 @@ fn interactive_search<R: io::BufRead>(
             }
             Err(e) => return Err(e),
         };
-        referer = url;
+        from_page = url;
 
         let (page_results, maybe_next) = parse_search_results(&html);
         let offset = all_results.len();

@@ -1077,17 +1077,37 @@ fn test_parse_search_results_last_page() {
 }
 
 #[test]
-fn test_resolve_url_percent_encodes_pager_hrefs() {
-    // The pager on a real search page emits site-relative hrefs with raw UTF-8
-    // in them (see the div.pager block in 金田一.html). They must come back out
-    // as ASCII: the resolved URL is reused as the `referer` header of the
-    // following request, and header values may not carry non-ASCII bytes.
-    let url = resolve_url("/s/金田一_p2.html").unwrap();
+fn test_join_url_percent_encodes_pager_hrefs() {
+    // The pager on a real search page emits hrefs with raw UTF-8 in them (see
+    // the div.pager block in 金田一.html). They must come back out as ASCII:
+    // the resolved URL is reused as the `referer` header of the following
+    // request, and header values may not carry non-ASCII bytes. Joined against
+    // the result page, the way interactive_search resolves a pager href.
+    let from_page = Url::parse("https://tw.manhuagui.com/s/金田一.html").unwrap();
+    let url = join_url(&from_page, "/s/金田一_p2.html").unwrap();
     assert_eq!(
         url.as_str(),
         "https://tw.manhuagui.com/s/%E9%87%91%E7%94%B0%E4%B8%80_p2.html"
     );
     assert!(url.as_str().is_ascii());
+}
+
+#[test]
+fn test_join_url_resolves_a_relative_pager_href_against_its_page() {
+    // The base for a pager href is the page it was read off, not the site root.
+    // Today's pager writes site-absolute hrefs, for which the two agree, so
+    // only a document-relative href tells them apart: against the page it lands
+    // under /s/, against the root it lands beside it — a 404 that the paging
+    // loop reports as nothing more than an early end of results.
+    let from_page = Url::parse("https://tw.manhuagui.com/s/x.html").unwrap();
+    assert_eq!(
+        join_url(&from_page, "x_p2.html").unwrap().as_str(),
+        "https://tw.manhuagui.com/s/x_p2.html"
+    );
+    assert_eq!(
+        join_url(&HOST_URL, "x_p2.html").unwrap().as_str(),
+        "https://tw.manhuagui.com/x_p2.html"
+    );
 }
 
 #[test]
@@ -1108,13 +1128,16 @@ fn test_resolve_url_leaves_encoded_and_absolute_hrefs_alone() {
 }
 
 #[test]
-fn test_resolve_url_matches_the_next_page_href_from_real_html() {
-    // End to end over the real markup: the href parse_search_results hands back
-    // has to survive resolution into an ASCII URL.
+fn test_next_page_href_from_real_html_resolves_against_its_page() {
+    // End to end over the real markup, through the base interactive_search
+    // uses: the href parse_search_results hands back has to survive resolution
+    // against the page it was read off, as an ASCII URL under /s/.
     let html = load_test_html("金田一.html");
     let (_, next_page) = parse_search_results(&html);
-    let url = resolve_url(&next_page.expect("page 1 has a next-page link")).unwrap();
+    let from_page = Url::parse("https://tw.manhuagui.com/s/金田一.html").unwrap();
+    let url = join_url(&from_page, &next_page.expect("page 1 has a next-page link")).unwrap();
     assert!(url.as_str().is_ascii(), "got {}", url);
+    assert!(url.as_str().starts_with("https://tw.manhuagui.com/s/"), "got {}", url);
     assert!(url.as_str().contains("_p2"));
 }
 
