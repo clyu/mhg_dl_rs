@@ -120,6 +120,15 @@ enum AppError {
     Zip(#[from] ZipError),
 }
 
+impl AppError {
+    /// Everything a page can get wrong ends up in `ContentParsing`, built by
+    /// hand from a literal or a `format!`. `Into<String>` takes both, which is
+    /// what keeps a `.to_string()` off every call site that passes a literal.
+    fn parsing(msg: impl Into<String>) -> Self {
+        AppError::ContentParsing(msg.into())
+    }
+}
+
 type Result<T> = std::result::Result<T, AppError>;
 
 /// Simple Manhuagui downloader in Rust
@@ -334,14 +343,14 @@ fn unpack_packed(
         String::from_utf8(digits).expect("DIGITS is ASCII")
     }
     if a < 2 || a > DIGITS.len() {
-        return Err(AppError::ContentParsing(format!(
+        return Err(AppError::parsing(format!(
             "Base {} out of supported range (2..={})",
             a,
             DIGITS.len()
         )));
     }
     if c > data.len() {
-        return Err(AppError::ContentParsing(format!(
+        return Err(AppError::parsing(format!(
             "Packed script dictionary size mismatch: expected {} words, got {}",
             c,
             data.len()
@@ -383,9 +392,7 @@ fn unpack_packed(
     // reaches the payload unescaped, and a regex ending at the first `})` would
     // cut the object short there and report it as an unintelligible "EOF while
     // parsing" from serde.
-    let no_json = || {
-        AppError::ContentParsing("Could not find JSON data in unpacked script.".to_string())
-    };
+    let no_json = || AppError::parsing("Could not find JSON data in unpacked script.");
     // `find` returns the offset of `(`; the value starts at the `{` after it.
     let start = js.find("({").ok_or_else(no_json)? + 1;
     let chapter: ChapterStruct = serde_json::Deserializer::from_str(&js[start..])
@@ -396,9 +403,7 @@ fn unpack_packed(
     // A chapter with no images would produce an empty .cbz that marks the
     // chapter as done forever; fail here so the user sees an error instead.
     if chapter.files.is_empty() {
-        return Err(AppError::ContentParsing(
-            "Chapter data contains no image files".to_string(),
-        ));
+        return Err(AppError::parsing("Chapter data contains no image files"));
     }
     Ok(chapter)
 }
@@ -499,7 +504,7 @@ fn sanitize(s: &str) -> String {
 fn decode_lz_base64(data: &str, what: &str) -> Result<String> {
     lz_string::Decoder::new()
         .decode_base64(data)
-        .map_err(|_| AppError::ContentParsing(format!("Failed to decode {}", what)))
+        .map_err(|_| AppError::parsing(format!("Failed to decode {}", what)))
 }
 
 /// Only the headers that are identical on *every* request belong here.
@@ -540,7 +545,7 @@ fn build_client() -> Result<Client> {
 /// is already absolute replaces the base instead of being appended to it.
 fn join_url(base: &Url, href: &str) -> Result<Url> {
     base.join(href)
-        .map_err(|e| AppError::ContentParsing(format!("Invalid URL '{href}': {e}")))
+        .map_err(|e| AppError::parsing(format!("Invalid URL '{href}': {e}")))
 }
 
 /// Resolve a link against the site root — for the hrefs whose base *is* the
@@ -783,7 +788,7 @@ impl Comic {
             .next()
             .map(|e| e.text().collect::<String>().trim().to_string())
             .filter(|t| !t.is_empty())
-            .ok_or_else(|| AppError::ContentParsing("Could not find title".to_string()))?;
+            .ok_or_else(|| AppError::parsing("Could not find title"))?;
 
         let mut chapters = extract_chapters_with_groups(&document);
 
@@ -804,8 +809,8 @@ impl Comic {
         }
 
         if chapters.is_empty() {
-            return Err(AppError::ContentParsing(
-                "No chapters found (page layout changed or content is gated)".to_string(),
+            return Err(AppError::parsing(
+                "No chapters found (page layout changed or content is gated)",
             ));
         }
 
@@ -817,7 +822,7 @@ impl Comic {
     fn parse_chapter_html(html: &str) -> Result<ChapterStruct> {
         let caps = RE_CHAPTER_DATA
             .captures(html)
-            .ok_or_else(|| AppError::ContentParsing("Could not parse chapter data".to_string()))?;
+            .ok_or_else(|| AppError::parsing("Could not parse chapter data"))?;
 
         let frame = &caps[1];
         let a: usize = caps[2].parse()?;
@@ -917,7 +922,7 @@ impl Comic {
                     .take(IMAGE_HEAD_LEN as u64)
                     .read_to_end(&mut head)?;
                 if !looks_like_image(&head) {
-                    return Err(AppError::ContentParsing(format!(
+                    return Err(AppError::parsing(format!(
                         "Page {} ({}) is not an image: response starts with {:02x?}",
                         i + 1,
                         file,
