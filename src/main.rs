@@ -55,7 +55,15 @@ static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
 /// One dictionary key of a packed script. No `\b` anchors are needed: a scan
 /// takes the leftmost match, so `\w+` can only start where a run of word
 /// characters starts, and being greedy it always consumes the run to its end.
-static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\w+").unwrap());
+///
+/// `(?-u:…)` is what makes that argument hold against the packer, whose word
+/// class is JavaScript's `[0-9A-Za-z_]`; this crate's `\w` is Unicode-aware and
+/// counts CJK as word characters. The frame keeps every non-word character of
+/// the original source verbatim, so a key can end up written straight against
+/// text JavaScript treated as a separator — `第5話`, where only the `5` is the
+/// key. Unicode semantics would take that whole run as a single word, match it
+/// against no key, and hand the key back unsubstituted.
+static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?-u:\w+)").unwrap());
 static RE_CHAPTER_DATA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'").unwrap());
 static RE_ILLEGAL_CHARS: LazyLock<Regex> =

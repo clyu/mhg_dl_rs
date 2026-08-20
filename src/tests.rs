@@ -168,6 +168,29 @@ fn test_unpack_packed_keeps_the_text_before_the_first_word() {
 }
 
 #[test]
+fn test_unpack_packed_substitutes_a_key_written_against_non_ascii_text() {
+    // The packer's word class is JavaScript's `[0-9A-Za-z_]`, so a character it
+    // does not count as a word — CJK here — is left in the frame verbatim, and
+    // a key can end up with no separator between it and that text. In
+    // "第5話.jpg" only the `5` is a key; a Unicode-aware `\w+` would swallow the
+    // whole run as one word, find no entry for it, and leave the key in place.
+    let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[\"第5話.jpg\"]})";
+    let data = vec![
+        "sl",    // 0
+        "e",     // 1
+        "m",     // 2
+        "path",  // 3
+        "files", // 4
+        "01",    // 5
+    ];
+
+    let result = unpack_packed(frame, 10, 6, &data).unwrap();
+
+    assert_eq!(result.path, "/comic/");
+    assert_eq!(result.files, vec!["第01話.jpg".to_string()]);
+}
+
+#[test]
 fn test_unpack_packed_payload_with_brace_paren_in_a_string_value() {
     // Only word runs are substituted, so punctuation inside a title survives
     // the unpacking verbatim and lands in the JSON payload. A chapter named
