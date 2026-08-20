@@ -1152,14 +1152,11 @@ fn interactive_search<R: io::BufRead>(
         // Only the href is kept here; it is resolved at the top of the next
         // iteration, where a href that turns out not to be a page is handled
         // the same way as a page that cannot be reached.
+        //
+        // The prompt stays inside the `Some` arm: a page with no pager link
+        // must not ask the user whether to fetch one.
         next_href = match maybe_next {
-            Some(next) => {
-                if prompt_for_next_page()? {
-                    Some(next)
-                } else {
-                    None
-                }
-            }
+            Some(next) => prompt_for_next_page()?.then_some(next),
             None => None,
         };
     }
