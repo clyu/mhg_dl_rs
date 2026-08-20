@@ -235,6 +235,15 @@ struct Comic {
 /// inert — `create` truncates a leftover, and `compress_chapter` packs the page
 /// list `download_images` returned rather than the directory, so a stray
 /// `.part` can neither be resumed from nor reach the archive.
+///
+/// Inert is not the same as gone, and the two leftovers are not swept alike. A
+/// page's `.part` sits in the chapter directory, which `compress_chapter`
+/// removes whole once the archive is written. The archive's own
+/// `{book}_{chapter}.cbz.part` sits in the book directory, among the finished
+/// .cbz files, and nothing sweeps that one: `download_chapter` tests for the
+/// .cbz and not the `.part`, so it is truncated only by compressing that same
+/// chapter again. Interrupt ten different chapters mid-zip and ten of them are
+/// still in the library afterwards.
 struct PartFile {
     part: PathBuf,
     dst: PathBuf,
@@ -905,9 +914,18 @@ impl Comic {
             // transfer has none, and neither does a body reqwest decoded for us
             // — the client advertises gzip/deflate/br, and a decoded body
             // reports no exact size. So the length check below is a second line
-            // of defence rather than the only one; the transport itself errors
-            // on a connection that closes mid-body, which is why
-            // `test_download_incomplete_file` accepts either message.
+            // of defence rather than the only one: wherever the framing says how
+            // much is coming, the transport itself errors on a connection that
+            // closes mid-body, which is why `test_download_incomplete_file`
+            // accepts either message.
+            //
+            // What neither covers is a response framed by neither — no
+            // `Content-Length`, not chunked, the body ending when the
+            // connection does. There EOF *is* the terminator, so `io::copy`
+            // returns `Ok` on a short body and the length check has no length
+            // to check against: a truncated image would be sealed into the
+            // .cbz. A decoded body still errors inside the decoder; an
+            // undecoded one has nothing left to catch it.
             let content_length = resp.content_length();
             // Both checks belong inside the closure: returning `Ok` is what
             // renames the file into place, and a truncated or non-image page
@@ -1137,8 +1155,16 @@ fn interactive_search<R: io::BufRead>(
         // Resolving the href and fetching what it points at are one fallible
         // step, so that both ways of failing to reach a page — a connection
         // that drops on the way to page 3, or an href the pager wrote that is
-        // not a page at all, such as the `javascript:;` some last pages carry
-        // — meet the one policy below instead of each growing its own.
+        // not a page at all — meet the one policy below instead of each growing
+        // its own.
+        //
+        // The resolve half is not where the second one fails: `Url::join` takes
+        // anything carrying a scheme, so a `javascript:;` href parses into a URL
+        // and is turned down a step later by reqwest, which will not request
+        // that scheme. Both arrive below as a `Reqwest` error — and only after
+        // the user has been asked to press SPACE for a page that never existed.
+        // Sparing them that would mean rejecting the href where the pager is
+        // parsed, not here.
         //
         // The base is the page the href was read off, not the site root. The
         // pager writes site-absolute hrefs today, for which the two agree; a
