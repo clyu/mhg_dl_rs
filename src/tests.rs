@@ -89,6 +89,15 @@ fn test_parse_id() {
     assert_eq!(parse_id("   "), None);
     assert_eq!(parse_id("  abcde  "), None);
     assert_eq!(parse_id("  123abc  "), None);
+
+    // Non-ASCII glued to the digits is trailing garbage too, which is why the
+    // `\b` is left Unicode-aware while the classes around it are not.
+    assert_eq!(parse_id("12345漢化"), None);
+    assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345漢"), None);
+
+    // Full-width digits are not digits: they never survived the parse into a
+    // usize, and now they do not match in the first place.
+    assert_eq!(parse_id("１２３４５"), None);
 }
 
 #[test]

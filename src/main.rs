@@ -49,8 +49,18 @@ static TUNNEL_HELP: LazyLock<String> = LazyLock::new(|| {
     format!("Tunnel line: {channels}")
 });
 
+/// A comic ID, from a bare number or from a URL carrying one. The classes are
+/// spelled out rather than written `\w`/`\d`, which this crate reads as
+/// Unicode: a host label and a comic ID are ASCII by definition, and a
+/// full-width digit never parsed into a `usize` anyway.
+///
+/// `\b` is deliberately left Unicode-aware. It is what keeps an ID with text
+/// glued to it from being accepted, and CJK is text: there is no boundary
+/// between the digits and the CJK in `12345漢`, so that input does not parse —
+/// an ASCII `\b` would find one there and hand back 12345.
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:(?:https?://(?:[\w\.]+\.)?manhuagui\.com)?/comic/)?(\d+)\b").unwrap()
+    Regex::new(r"^(?:(?:https?://(?:[0-9A-Za-z_.]+\.)?manhuagui\.com)?/comic/)?([0-9]+)\b")
+        .unwrap()
 });
 /// One dictionary key of a packed script. No `\b` anchors are needed: a scan
 /// takes the leftmost match, so `\w+` can only start where a run of word
@@ -64,8 +74,13 @@ static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
 /// key. Unicode semantics would take that whole run as a single word, match it
 /// against no key, and hand the key back unsubstituted.
 static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?-u:\w+)").unwrap());
+/// The packed-script call: frame, base, dictionary size, lz-string payload.
+/// The digits and the base64 alphabet are ASCII for the reason `RE_ID`'s are.
+/// `\s*` is left alone — Unicode space after the quote is as good a match as
+/// ASCII space — and `.` cannot be narrowed at all: outside Unicode mode it
+/// matches bytes, which the crate rejects in a pattern over `&str`.
 static RE_CHAPTER_DATA: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',(\d+),(\d+),'([\w+/=]+)'").unwrap());
+    LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',([0-9]+),([0-9]+),'([0-9A-Za-z_+/=]+)'").unwrap());
 static RE_ILLEGAL_CHARS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r##"[\x00-\x1f\x7f\\/:*?"<>|]"##).unwrap());
 
