@@ -414,6 +414,10 @@ fn unpack_packed(
 /// under 255 UTF-16 units too. A page file name, one sanitized name behind a
 /// short index, is nowhere near it even with the suffix.
 ///
+/// One name can come back a byte over the budget, when `sanitize` spends it
+/// breaking up a Windows device name (see `RESERVED_DEVICE_NAMES`). Two of
+/// those at once is the real worst case, 252, and the slack below absorbs it.
+///
 /// Counting those last 5 bytes is what pins the ceiling at 122 rather than the
 /// 125 the finished name alone would allow, and the failure they buy off lands
 /// on the temporary file — before the name it would be renamed to ever exists.
@@ -423,12 +427,28 @@ fn unpack_packed(
 /// never be downloaded at all.
 const MAX_NAME_BYTES: usize = 120;
 
+/// The names Windows resolves to a device wherever a path component is
+/// expected. The match is case-insensitive, and an extension is no escape:
+/// `NUL.txt` and `NUL.tar.gz` open the null device exactly as `NUL` does, which
+/// is why `sanitize` tests the stem rather than the whole name.
+///
+/// The failure they cause is the one `MAX_NAME_BYTES` exists to prevent, in a
+/// different disguise: `create_dir_all` on a book or chapter named `NUL` fails,
+/// and it fails again on every later run, so that comic can never be downloaded
+/// at all. The CI matrix builds `x86_64-pc-windows-msvc`, so this is a platform
+/// the program ships on.
+const RESERVED_DEVICE_NAMES: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
+    "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
+    "LPT7", "LPT8", "LPT9",
+];
+
 /// Make `s` usable as a single path component: replace characters that are
 /// invalid in file names with `_`, strip surrounding whitespace and trailing
-/// dots, and cut it down to `MAX_NAME_BYTES`. Windows rejects names ending in a
-/// dot or a space, and a name consisting only of dots (`.`, `..`) would
-/// otherwise resolve to a directory outside the intended one. Falls back to `_`
-/// when nothing usable is left.
+/// dots, cut it down to `MAX_NAME_BYTES`, and break up a Windows device name.
+/// Windows rejects names ending in a dot or a space, and a name consisting only
+/// of dots (`.`, `..`) would otherwise resolve to a directory outside the
+/// intended one. Falls back to `_` when nothing usable is left.
 ///
 /// Two titles sharing a truncated prefix collapse onto one name, as two titles
 /// differing only in an illegal character already do. `download_chapter` treats
@@ -457,10 +477,23 @@ fn sanitize(s: &str) -> String {
     // right here.
     let bounded = bounded.trim_end_matches(['.', ' ']);
     if bounded.is_empty() {
-        "_".to_string()
-    } else {
-        bounded.to_string()
+        return "_".to_string();
     }
+    // Last, because both steps above can turn a name into a device name that
+    // was not one on the way in: the cut drops the tail off `NUL.long…`, and
+    // the trim takes the dot off `NUL.`.
+    //
+    // The `_` goes after the stem and not at the end of the name, which would
+    // leave `NUL.txt_` — still the null device, since Windows looks only at
+    // what precedes the first dot. That is also why this can hand back
+    // `MAX_NAME_BYTES + 1` bytes: the budget has the room (see the 122 its
+    // arithmetic allows), and cutting to make space would just restore the
+    // reserved name.
+    let stem = bounded.split_once('.').map_or(bounded, |(stem, _)| stem);
+    if RESERVED_DEVICE_NAMES.iter().any(|name| stem.eq_ignore_ascii_case(name)) {
+        return format!("{stem}_{}", &bounded[stem.len()..]);
+    }
+    bounded.to_string()
 }
 
 fn decode_lz_base64(data: &str, what: &str) -> Result<String> {

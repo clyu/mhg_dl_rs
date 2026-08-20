@@ -802,6 +802,38 @@ fn test_sanitize_bounds_the_length() {
 }
 
 #[test]
+fn test_sanitize_breaks_up_windows_device_names() {
+    // A book or chapter named after a device cannot be created on Windows, and
+    // it fails again on every later run — the comic would never be downloadable
+    // at all. Bare, in either case, and with an extension, which is no escape:
+    // Windows resolves the name from the stem alone.
+    assert_eq!(sanitize("NUL"), "NUL_");
+    assert_eq!(sanitize("nul"), "nul_");
+    assert_eq!(sanitize("CON.txt"), "CON_.txt");
+    assert_eq!(sanitize("com1"), "com1_");
+    assert_eq!(sanitize("LPT9.tar.gz"), "LPT9_.tar.gz");
+
+    // The check runs after the trims, which can expose a stem that was not the
+    // whole name on the way in.
+    assert_eq!(sanitize("NUL. "), "NUL_");
+    assert_eq!(sanitize("  aux  "), "aux_");
+
+    // A name that merely starts with one is left alone: the stem has to match
+    // in full.
+    assert_eq!(sanitize("CONAN"), "CONAN");
+    assert_eq!(sanitize("NUL2"), "NUL2");
+    assert_eq!(sanitize("com10"), "com10");
+    assert_eq!(sanitize("第01話"), "第01話");
+
+    // The `_` is inserted after the length cut, so a reserved stem with a long
+    // tail comes back one byte over the budget. Cutting to make room would put
+    // the reserved name straight back.
+    let long = sanitize(&format!("NUL.{}", "x".repeat(200)));
+    assert_eq!(long.len(), MAX_NAME_BYTES + 1);
+    assert!(long.starts_with("NUL_."), "got {}", long);
+}
+
+#[test]
 fn test_sanitized_names_compose_into_a_legal_component() {
     // The budget exists for the longest component the program builds: a
     // chapter's archive spends two sanitized names at once, and 255 bytes is
@@ -819,6 +851,18 @@ fn test_sanitized_names_compose_into_a_legal_component() {
     // A page file name is one sanitized name behind a zero-padded index.
     let page_name = format!("{:04}_{}", 9999, sanitize(&"頁".repeat(200)));
     assert!(page_name.len() <= 255, "page name is {} bytes", page_name.len());
+
+    // The worst case the budget has to cover: two device-name stems, each
+    // costing the extra byte sanitize spends to break them up, under the
+    // suffix write_atomic appends while the archive is still being written.
+    let book = sanitize(&format!("NUL.{}", "a".repeat(200)));
+    let chapter = sanitize(&format!("CON.{}", "b".repeat(200)));
+    let part_name = format!("{}_{}.cbz.part", book, chapter);
+    assert!(
+        part_name.len() <= 255,
+        "partial archive name is {} bytes",
+        part_name.len()
+    );
 }
 
 #[test]
