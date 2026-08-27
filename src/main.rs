@@ -15,6 +15,7 @@ use regex::Regex;
 use rand::Rng;
 use std::{
     borrow::Cow,
+    collections::HashMap,
     fs,
     io::{self, Read, Write},
     num::ParseIntError,
@@ -387,7 +388,7 @@ fn unpack_packed(
     }
     // Sized only after the check above, so a bogus `c` from a hostile page
     // cannot ask for a huge allocation up front.
-    let mut dmap = std::collections::HashMap::with_capacity(c);
+    let mut dmap = HashMap::with_capacity(c);
     // `take(c)` keeps the dictionary at the size the packed script declared
     // without indexing, so the length check above is the only thing standing
     // between a bogus `c` and an out-of-bounds access — there is no second
