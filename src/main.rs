@@ -14,6 +14,7 @@ use serde::Deserialize;
 use regex::Regex;
 use rand::Rng;
 use std::{
+    borrow::Cow,
     fs,
     io::{self, Read, Write},
     num::ParseIntError,
@@ -79,6 +80,10 @@ static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?-u:\w+)").unwr
 /// `\s*` is left alone — Unicode space after the quote is as good a match as
 /// ASCII space — and `.` cannot be narrowed at all: outside Unicode mode it
 /// matches bytes, which the crate rejects in a pattern over `&str`.
+///
+/// The frame capture is the raw text of a single-quoted JS string literal, so
+/// it still carries the packer's `\'` and `\\` escapes;
+/// `unescape_packed_frame` is what undoes them before the frame is used.
 static RE_CHAPTER_DATA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',([0-9]+),([0-9]+),'([0-9A-Za-z_+/=]+)'").unwrap());
 static RE_ILLEGAL_CHARS: LazyLock<Regex> =
@@ -430,6 +435,47 @@ fn unpack_packed(
         return Err(AppError::parsing("Chapter data contains no image files"));
     }
     Ok(chapter)
+}
+
+/// Undo the escaping the packer applied when it wrote the frame into the page
+/// as a single-quoted JS string literal. A browser never sees the problem:
+/// `eval` decodes the literal before the unpacker runs. `RE_CHAPTER_DATA`
+/// reads the literal's raw text instead, so a quote in a comic or chapter
+/// title reaches serde still escaped — `'` as `\'`, which is not a JSON
+/// escape at all, and the backslash of a JSON `\"` as `\\`, whose first half
+/// serde takes as a complete escape, leaving the quote to end the string
+/// early. Either way the whole chapter fails to parse, even though the title
+/// fields are never deserialized: serde still has to lex past them.
+///
+/// Only `\'` and `\\` are decoded, because they are everything the packer's
+/// escaper writes (`p.replace(/([\\'])/g, '\\$1')`): every backslash in a
+/// well-formed frame opens one of the two. JSON's own escapes ride through
+/// unchanged — a title's newline travels as `\\n` and comes back `\n`, which
+/// is serde's to decode. Any other `\x` is not this packer's output, so it is
+/// kept verbatim rather than guessed at.
+fn unescape_packed_frame(frame: &str) -> Cow<'_, str> {
+    // Escape-free frames are the overwhelmingly common case — hand the input
+    // back rather than copying it.
+    if !frame.contains('\\') {
+        return Cow::Borrowed(frame);
+    }
+    let mut out = String::with_capacity(frame.len());
+    let mut chars = frame.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some(escaped @ ('\\' | '\'')) => out.push(escaped),
+                Some(other) => {
+                    out.push(c);
+                    out.push(other);
+                }
+                None => out.push(c),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
 }
 
 /// Byte budget for one sanitized name.
@@ -848,14 +894,14 @@ impl Comic {
             .captures(html)
             .ok_or_else(|| AppError::parsing("Could not parse chapter data"))?;
 
-        let frame = &caps[1];
+        let frame = unescape_packed_frame(&caps[1]);
         let a: usize = caps[2].parse()?;
         let c: usize = caps[3].parse()?;
         let data_b64 = &caps[4];
 
         let data_dec = decode_lz_base64(data_b64, "base64 chapter data")?;
         let data: Vec<&str> = data_dec.split('|').collect();
-        unpack_packed(frame, a, c, &data)
+        unpack_packed(&frame, a, c, &data)
     }
 
     /// The tunnel URL of a single page.

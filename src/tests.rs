@@ -270,6 +270,30 @@ fn test_unpack_packed_empty_files_is_error() {
     );
 }
 
+#[test]
+fn test_unescape_packed_frame() {
+    // The common case: no escapes at all, and the input is handed back
+    // without a copy.
+    assert!(matches!(
+        unescape_packed_frame("SMH.imgData({})"),
+        Cow::Borrowed(_)
+    ));
+
+    // The two escapes the packer's escaper writes.
+    assert_eq!(unescape_packed_frame(r"It\'s"), "It's");
+    assert_eq!(unescape_packed_frame(r"a\\b"), r"a\b");
+    // An escaped backslash directly ahead of an escaped quote: the scan must
+    // pair the backslashes left to right, not pick the middle two.
+    assert_eq!(unescape_packed_frame(r"\\\'"), r"\'");
+    // A JSON escape travels with its backslash doubled and must come back
+    // single, ready for serde to decode.
+    assert_eq!(unescape_packed_frame(r#"\\"quoted\\""#), r#"\"quoted\""#);
+    // Anything the packer never writes is kept verbatim, dangling tail
+    // included, rather than guessed at.
+    assert_eq!(unescape_packed_frame(r"a\nb"), r"a\nb");
+    assert_eq!(unescape_packed_frame(r"tail\"), r"tail\");
+}
+
 // ==============================================================================
 // Integration Tests: Real HTML Data from test_data/
 // ==============================================================================
@@ -453,6 +477,36 @@ fn test_chapter_parsing_from_real_html() {
     // Check specific known values for this test file: file count. 48 is the
     // length of the files array in this page's packed chapter data.
     assert_eq!(chapter.files.len(), 48);
+}
+
+#[test]
+fn test_parse_chapter_html_unescapes_the_frame_literal() {
+    // The frame sits in the page as a single-quoted JS string literal, so a
+    // title carrying quotes arrives escaped: `'` as `\'`, the backslash of a
+    // JSON `\"` as `\\`. eval strips these before a browser's unpacker runs;
+    // parse_chapter_html has to do the same, or serde is handed `\'` — not a
+    // JSON escape — and the chapter fails over fields ChapterStruct never
+    // even deserializes.
+    //
+    // The base64 payload is borrowed from the real chapter page: producing
+    // one from scratch would take an lz-string compressor, and with the
+    // dictionary size declared as 0 its words are never consulted anyway.
+    let real = load_test_html("comic_40811_chapter_1.html");
+    let payload = RE_CHAPTER_DATA
+        .captures(&real)
+        .expect("real page carries packed data")[4]
+        .to_string();
+
+    let frame = r#"SMH.imgData({"sl":{"e":"123","m":"abc"},"cname":"It\'s \\"fine\\"","path":"/comic/","files":["01.jpg"]}).preInit();"#;
+    let page = format!(
+        "<script>eval(function(p,a,c,k,e,d){{}}('{frame}',10,0,'{payload}'.split('|'),0,{{}}))</script>"
+    );
+
+    let chapter = Comic::parse_chapter_html(&page)
+        .expect("escaped quotes in the frame must not abort the parse");
+    assert_eq!(chapter.path, "/comic/");
+    assert_eq!(chapter.files, vec!["01.jpg".to_string()]);
+    assert_eq!(chapter.sl.m, "abc");
 }
 
 
