@@ -389,10 +389,15 @@ fn unpack_packed(
     // Sized only after the check above, so a bogus `c` from a hostile page
     // cannot ask for a huge allocation up front.
     let mut dmap = HashMap::with_capacity(c);
-    // `take(c)` keeps the dictionary at the size the packed script declared
-    // without indexing, so the length check above is the only thing standing
-    // between a bogus `c` and an out-of-bounds access — there is no second
-    // place to get it wrong.
+    // `take(c)` is what holds the dictionary to the size the packed script
+    // declared, and it does so without indexing: an oversized `c` could not
+    // read out of bounds even unchecked, it would only yield a dictionary
+    // shorter than asked for. So the check above is not standing between a
+    // hostile page and a panic; it buys two other things. It bounds the
+    // allocation on the line above, and it names the fault, because a
+    // dictionary that falls short leaves every word from `data.len()` on
+    // unsubstituted — which would otherwise surface as an unintelligible
+    // complaint about a script that has no JSON in it.
     for (i, word) in data.iter().take(c).enumerate() {
         // An empty dictionary entry maps the word to itself, which is also
         // what the replacement below does for unknown words — skip it before
