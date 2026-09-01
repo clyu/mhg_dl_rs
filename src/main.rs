@@ -873,15 +873,14 @@ impl Comic {
         // unrelated ASP.NET view state that merely happens to use that id, and
         // the "no chapters" error below describes the situation far better
         // than a decoder complaint would.
-        if chapters.is_empty() {
-            if let Some(decoded) = document
+        if chapters.is_empty()
+            && let Some(decoded) = document
                 .select(&SEL_VIEWSTATE)
                 .next()
                 .and_then(|e| e.value().attr("value"))
                 .and_then(|vs_val| decode_lz_base64(vs_val, "__VIEWSTATE").ok())
-            {
-                chapters = extract_chapters_with_groups(&Html::parse_fragment(&decoded));
-            }
+        {
+            chapters = extract_chapters_with_groups(&Html::parse_fragment(&decoded));
         }
 
         if chapters.is_empty() {
@@ -1040,13 +1039,13 @@ impl Comic {
                 }
                 out.write_all(&head)?;
                 let bytes_written = head.len() as u64 + io::copy(&mut resp, out)?;
-                if let Some(expected) = content_length {
-                    if bytes_written != expected {
-                        return Err(AppError::Io(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            format!("Incomplete download: expected {} bytes, got {}", expected, bytes_written),
-                        )));
-                    }
+                if let Some(expected) = content_length
+                    && bytes_written != expected
+                {
+                    return Err(AppError::Io(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        format!("Incomplete download: expected {} bytes, got {}", expected, bytes_written),
+                    )));
                 }
                 Ok(())
             })?;
