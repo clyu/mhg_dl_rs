@@ -1042,10 +1042,11 @@ impl Comic {
                 if let Some(expected) = content_length
                     && bytes_written != expected
                 {
-                    return Err(AppError::Io(io::Error::new(
+                    return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         format!("Incomplete download: expected {} bytes, got {}", expected, bytes_written),
-                    )));
+                    )
+                    .into());
                 }
                 Ok(())
             })?;
@@ -1141,10 +1142,11 @@ fn prompt_line<R: io::BufRead>(reader: &mut R, prompt: &str) -> Result<String> {
     io::stdout().flush()?;
     let mut input = String::new();
     if reader.read_line(&mut input)? == 0 {
-        return Err(AppError::Io(io::Error::new(
+        return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
             "stdin closed while waiting for input",
-        )));
+        )
+        .into());
     }
     Ok(input.trim().to_string())
 }
