@@ -918,12 +918,36 @@ impl Comic {
     /// the host name, turning every page of the chapter into a DNS failure that
     /// names a host nobody wrote.
     fn image_url(&self, path: &str, file: &str) -> Result<Url> {
+        // Percent-encode the three characters that would otherwise steer the
+        // resolve instead of naming a file, in one pass over both halves.
+        //
+        // `?` and `#` end the path: everything after one becomes a query or a
+        // fragment, so a page could hand back a URL that requests a directory
+        // it did not name. `\` is the one that matters, because it defeats the
+        // guard below rather than merely truncating: `Url` follows the WHATWG
+        // rules, where a backslash is a path separator for special schemes, so
+        // `/\evil.example/x` reaches the same authority-relative state `//`
+        // does — and the leading slash this function anchors is what supplies
+        // the first half of it.
+        //
+        // Nothing else is touched. Raw UTF-8 is exactly what `join_url` is
+        // there to encode, an existing `%XX` has to survive unchanged, and a
+        // `..` segment is `Url`'s to resolve — against a base whose host it
+        // cannot climb past anyway.
+        let mut joined = String::with_capacity(path.len() + file.len());
+        for c in path.chars().chain(file.chars()) {
+            match c {
+                '?' => joined.push_str("%3F"),
+                '#' => joined.push_str("%23"),
+                '\\' => joined.push_str("%5C"),
+                _ => joined.push(c),
+            }
+        }
         // Anchored at exactly one leading slash, which is what makes this an
         // absolute path on the tunnel host no matter what the page supplied:
         // none would resolve relative to the base, and two would make it
         // protocol-relative, handing the request to a host of the page's
         // choosing.
-        let joined = format!("{path}{file}");
         join_url(&self.tunnel, &format!("/{}", joined.trim_start_matches('/')))
     }
 

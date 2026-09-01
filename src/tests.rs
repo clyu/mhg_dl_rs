@@ -955,7 +955,43 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
         "https://i.hamreus.com/evil.example/001.jpg.webp"
     );
 
-    // Raw UTF-8 comes back percent-encoded, as it does for page links.
+    // A backslash is the protocol-relative case in disguise: `Url` follows the
+    // WHATWG rules, where it separates a path for special schemes, so the
+    // leading slash this function anchors turns `\host` into `/\host` — which
+    // parses as an authority exactly as `//host` does. Encoded, it stays a
+    // path segment on the tunnel.
+    let url = comic.image_url("\\evil.example/", "001.jpg.webp").unwrap();
+    assert_eq!(url.host_str(), Some("i.hamreus.com"));
+    assert_eq!(
+        url.as_str(),
+        "https://i.hamreus.com/%5Cevil.example/001.jpg.webp"
+    );
+
+    // `?` and `#` end a path rather than sitting in one, so a page could
+    // otherwise cut the request short of the directory it named.
+    let url = comic.image_url("/ps3/l/foo?a=b/", "001.jpg.webp").unwrap();
+    assert_eq!(url.query(), None);
+    assert_eq!(
+        url.as_str(),
+        "https://i.hamreus.com/ps3/l/foo%3Fa=b/001.jpg.webp"
+    );
+
+    let url = comic.image_url("/ps3/l/foo#frag/", "001.jpg.webp").unwrap();
+    assert_eq!(url.fragment(), None);
+    assert_eq!(
+        url.as_str(),
+        "https://i.hamreus.com/ps3/l/foo%23frag/001.jpg.webp"
+    );
+
+    // Raw UTF-8 comes back percent-encoded, as it does for page links. An
+    // escape the page already wrote rides through unchanged rather than being
+    // encoded a second time into `%25`.
+    let url = comic.image_url("/ps3/%E7%AC%AC01/", "001.jpg.webp").unwrap();
+    assert_eq!(
+        url.as_str(),
+        "https://i.hamreus.com/ps3/%E7%AC%AC01/001.jpg.webp"
+    );
+
     let url = comic.image_url("/ps3/第01話/", "001.jpg.webp").unwrap();
     assert_eq!(
         url.as_str(),
