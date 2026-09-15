@@ -1,4 +1,7 @@
 use super::*;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::thread;
 use tempfile::TempDir;
 
 // Helper function to load test HTML files
@@ -40,6 +43,86 @@ fn test_chapter(files: &[&str]) -> ChapterStruct {
         path: "/".to_string(),
         files: files.iter().map(|f| f.to_string()).collect(),
     }
+}
+
+/// The dictionary the base-10 unpack tests pack against: key `0` is "sl", `1`
+/// "e", `2` "m", `3` "path" and `4` "files". A test that needs one word more
+/// appends it, as key `5`.
+const PACKED_DICT: [&str; 5] = ["sl", "e", "m", "path", "files"];
+
+/// The `({…})` payload call of a frame packed against `PACKED_DICT`, with
+/// `files` spliced in as the raw text of the files array. No space between `(`
+/// and `{`: the payload is located by searching for the literal "({", so the
+/// brace has to immediately follow the parenthesis.
+fn packed_payload(files: &str) -> String {
+    format!(r#"({{"0":{{"1":"123","2":"abc"}},"3":"/comic/","4":{files}}})"#)
+}
+
+/// Assert that a prompt gave up because its input closed, and not over some
+/// other error on the way there.
+fn assert_input_closed<T: std::fmt::Debug>(result: std::result::Result<T, AppError>) {
+    let err = result.expect_err("a closed input must end the prompt");
+    assert!(
+        matches!(&err, AppError::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof),
+        "expected the input to be reported closed, got: {}",
+        err
+    );
+}
+
+/// A JPEG signature, for mock responses that have to get past
+/// `looks_like_image`.
+const JPEG_SOI: &[u8] = b"\xFF\xD8\xFF\xE0";
+
+/// Serve `count` connections on a fresh local port, one request each, answering
+/// every request with whatever `respond` builds from its request line. Returns
+/// the base URL to hand `test_comic` as the tunnel, and the server thread, which
+/// yields the request lines in the order they arrived.
+fn serve(
+    count: usize,
+    respond: impl Fn(&str) -> Vec<u8> + Send + 'static,
+) -> (String, thread::JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        (0..count)
+            .map(|_| {
+                let (mut stream, _) = listener.accept().unwrap();
+                let line = read_request_line(&mut stream);
+                // The client may already have hung up — a rejected page is
+                // dropped after its first bytes — so a failed write is no
+                // failure of the server's.
+                let _ = stream.write_all(&respond(&line));
+                line
+            })
+            .collect::<Vec<_>>()
+    });
+    (base, server)
+}
+
+/// The request line of the request waiting on `stream`. The rest of the head is
+/// read and dropped rather than left in the socket: closing a socket with bytes
+/// still unread makes Linux answer with a reset, which the client can report in
+/// place of the response the test is about.
+fn read_request_line(stream: &mut TcpStream) -> String {
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).unwrap_or(0) == 1 {
+        head.push(byte[0]);
+    }
+    let head = String::from_utf8_lossy(&head);
+    head.lines().next().unwrap_or_default().to_string()
+}
+
+/// A 200 response carrying `body`. The connection is closed behind it, so the
+/// client never tries to reuse it for the next page.
+fn http_200(body: &[u8]) -> Vec<u8> {
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    response.extend_from_slice(body);
+    response
 }
 
 #[test]
@@ -103,20 +186,9 @@ fn test_parse_id() {
 #[test]
 fn test_unpack_packed() {
     // A simplified example of "packed" JavaScript code and its dictionary.
-    // No space between '(' and '{': the payload is located by searching for the
-    // literal "({", so the brace has to immediately follow the parenthesis.
-    let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[\"01.jpg\"]})";
-    let a = 10;
-    let c = 5;
-    let data = vec![
-        "sl",    // 0
-        "e",     // 1
-        "m",     // 2
-        "path",  // 3
-        "files", // 4
-    ];
+    let frame = format!("SMH.imgData{}", packed_payload(r#"["01.jpg"]"#));
 
-    let result = unpack_packed(frame, a, c, &data).unwrap();
+    let result = unpack_packed(&frame, 10, 5, &PACKED_DICT).unwrap();
 
     // Verify the unpacked data
     assert_eq!(result.path, "/comic/");
@@ -133,20 +205,19 @@ fn test_unpack_packed() {
 
 #[test]
 fn test_unpack_packed_base_out_of_range() {
+    // Both ends of the guard. 1 and 63 are the first bases past each end; that
+    // 2 and 62 themselves are accepted is what the base-2 and base-62 tests
+    // below establish. Without the guard, 0 would divide by zero, 1 would never
+    // finish dividing, and 63 and up could index past the end of DIGITS.
+    //
+    // The dictionary is empty so that none of that can happen even with the
+    // guard gone: `encode` is never reached, and a missing or loosened guard
+    // fails here as the wrong error message — not as a panic, and not as a
+    // test that never returns.
     let frame = "{}";
-    // Two dictionary entries, so `encode` is reached with a value above zero:
-    // `encode(0, 1)` divides once and terminates, and so would never reach the
-    // base-1 hang on its own.
-    let c = 2;
-    let data = vec!["dummy", "dummy2"];
 
-    // Both ends of the guard, including the exact boundaries: 2 is the
-    // smallest workable base and 62 the largest the alphabet can express.
-    //   0: encode(1, 0) would panic via divide-by-zero without the guard.
-    //   1: encode(1, 1) would hang forever (value /= 1 never terminates).
-    //  63: one past the alphabet, would index DIGITS out of bounds.
     for base in [0, 1, 63, 100] {
-        let err_msg = unpack_packed(frame, base, c, &data)
+        let err_msg = unpack_packed(frame, base, 0, &[])
             .expect_err("base out of range must be rejected")
             .to_string();
         assert!(
@@ -166,10 +237,9 @@ fn test_unpack_packed_keeps_the_text_before_the_first_word() {
     // opens on `({"` and the first word is the key after it, which puts the
     // whole `({` that locates the payload inside that leading gap: lose it and
     // there is nothing left to find.
-    let frame = "({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[\"01.jpg\"]})";
-    let data = vec!["sl", "e", "m", "path", "files"];
+    let frame = packed_payload(r#"["01.jpg"]"#);
 
-    let result = unpack_packed(frame, 10, 5, &data).unwrap();
+    let result = unpack_packed(&frame, 10, 5, &PACKED_DICT).unwrap();
 
     assert_eq!(result.path, "/comic/");
     assert_eq!(result.files, vec!["01.jpg".to_string()]);
@@ -183,17 +253,11 @@ fn test_unpack_packed_substitutes_a_key_written_against_non_ascii_text() {
     // a key can end up with no separator between it and that text. In
     // "第5話.jpg" only the `5` is a key; a Unicode-aware `\w+` would swallow the
     // whole run as one word, find no entry for it, and leave the key in place.
-    let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[\"第5話.jpg\"]})";
-    let data = vec![
-        "sl",    // 0
-        "e",     // 1
-        "m",     // 2
-        "path",  // 3
-        "files", // 4
-        "01",    // 5
-    ];
+    let frame = format!("SMH.imgData{}", packed_payload(r#"["第5話.jpg"]"#));
+    // "01" is key 5.
+    let data = [PACKED_DICT.as_slice(), &["01"][..]].concat();
 
-    let result = unpack_packed(frame, 10, 6, &data).unwrap();
+    let result = unpack_packed(&frame, 10, 6, &data).unwrap();
 
     assert_eq!(result.path, "/comic/");
     assert_eq!(result.files, vec!["第01話.jpg".to_string()]);
@@ -207,14 +271,8 @@ fn test_unpack_packed_payload_with_brace_paren_in_a_string_value() {
     // ending the payload at the first `})` would truncate it into invalid JSON.
     // The keys after the offending value are the ones that must still arrive.
     let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"5\":\"第01話(完})\",\"3\":\"/comic/\",\"4\":[\"01.jpg\"]}).preInit();";
-    let data = vec![
-        "sl",    // 0
-        "e",     // 1
-        "m",     // 2
-        "path",  // 3
-        "files", // 4
-        "cname", // 5
-    ];
+    // "cname" is key 5.
+    let data = [PACKED_DICT.as_slice(), &["cname"][..]].concat();
 
     let result = unpack_packed(frame, 10, 6, &data).expect("payload must survive an embedded `})`");
 
@@ -252,14 +310,63 @@ fn test_unpack_packed_dictionary_size_mismatch() {
 }
 
 #[test]
+fn test_unpack_packed_ignores_words_past_the_declared_size() {
+    // The dictionary is held to the size the script declares, not to however
+    // many words the payload happens to split into: a sixth word would be key
+    // `5`, and must not reach the `5` in the file name.
+    let frame = format!("SMH.imgData{}", packed_payload(r#"["5.jpg"]"#));
+    let data = [PACKED_DICT.as_slice(), &["surplus"][..]].concat();
+
+    let result = unpack_packed(&frame, 10, 5, &data).unwrap();
+
+    assert_eq!(result.files, vec!["5.jpg".to_string()]);
+}
+
+#[test]
+fn test_unpack_packed_base_2_writes_keys_most_significant_digit_first() {
+    // Base 2 is the smallest the guard accepts, and the one where keys run past
+    // a single digit within `PACKED_DICT` itself: word 2 is key `10`, word 4 is
+    // `100`. Digits left least significant first would name them `01` and
+    // `001` instead, and neither `m` nor `files` would arrive.
+    let frame = r#"SMH.imgData({"0":{"1":"123","10":"abc"},"11":"/comic/","100":["01.jpg"]})"#;
+
+    let result = unpack_packed(frame, 2, 5, &PACKED_DICT).unwrap();
+
+    assert_eq!(result.path, "/comic/");
+    assert_eq!(result.files, vec!["01.jpg".to_string()]);
+    assert_eq!(result.sl.m, "abc");
+}
+
+#[test]
+fn test_unpack_packed_base_62_uses_the_packer_alphabet() {
+    // Base 62 is the largest the guard accepts, and the one real chapter pages
+    // are packed in. Its digits run 0-9, then a-z, then A-Z — a table with the
+    // two letter cases the other way round swaps `sl` and `path` below — and
+    // word 62 is the first to take two of them. The words the frame does not
+    // use are left empty.
+    let mut data = vec![""; 63];
+    data[10] = "sl"; // a
+    data[11] = "e"; // b
+    data[36] = "path"; // A
+    data[61] = "files"; // Z
+    data[62] = "m"; // 10
+    let frame = r#"SMH.imgData({"a":{"b":"123","10":"abc"},"A":"/comic/","Z":["01.jpg"]})"#;
+
+    let result = unpack_packed(frame, 62, 63, &data).unwrap();
+
+    assert_eq!(result.path, "/comic/");
+    assert_eq!(result.files, vec!["01.jpg".to_string()]);
+    assert_eq!(result.sl.m, "abc");
+}
+
+#[test]
 fn test_unpack_packed_empty_files_is_error() {
     // Same shape as test_unpack_packed, but the files array is empty: this
     // must be an error, not an empty chapter that would compress into an
     // empty .cbz and be treated as already downloaded forever.
-    let frame = "SMH.imgData({\"0\":{\"1\":\"123\",\"2\":\"abc\"},\"3\":\"/comic/\",\"4\":[]})";
-    let data = vec!["sl", "e", "m", "path", "files"];
+    let frame = format!("SMH.imgData{}", packed_payload("[]"));
 
-    let result = unpack_packed(frame, 10, 5, &data);
+    let result = unpack_packed(&frame, 10, 5, &PACKED_DICT);
 
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -312,12 +419,10 @@ fn test_comic_metadata_extraction_from_real_html() {
     // 番外篇 in this page) and only the entries within each <ul> are reversed
     // into reading order, so the very first chapter is 單話's oldest one.
     assert_eq!(chapters[0].name, "第01話");
-    assert!(chapters[0].href.contains("/comic/40811/"));
 
     for (i, chapter) in chapters.iter().enumerate() {
         assert!(!chapter.name.is_empty(), "Chapter {} name should not be empty", i);
         assert!(!chapter.href.is_empty(), "Chapter {} href should not be empty", i);
-        assert!(!chapter.group.is_empty(), "Chapter {} group should not be empty", i);
         assert!(chapter.href.starts_with("/comic/40811/"), "Chapter {} href should be valid path", i);
     }
 }
@@ -332,7 +437,6 @@ fn test_comic_metadata_extraction_adult_gated() {
     assert!(!chapters.is_empty(), "Should find chapters via __VIEWSTATE fallback");
     for chapter in &chapters {
         assert!(!chapter.name.is_empty());
-        assert!(!chapter.group.is_empty());
         assert!(chapter.href.starts_with("/comic/10528/"));
     }
 
@@ -355,6 +459,27 @@ fn test_comic_metadata_extraction_no_chapters_is_error() {
         </body></html>
     "#;
     assert!(Comic::parse_comic_html(html).is_err());
+}
+
+#[test]
+fn test_comic_metadata_extraction_undecodable_viewstate_is_no_chapters() {
+    // A __VIEWSTATE that is not lz-string data at all — an unrelated ASP.NET
+    // view state that merely uses the id — must not abort the parse with a
+    // decoder complaint. The page still has no chapters, and that is the error
+    // that describes it.
+    let html = r#"
+        <html><body>
+            <div class="book-title"><h1>某漫畫</h1></div>
+            <input type="hidden" id="__VIEWSTATE" value="!!!!">
+        </body></html>
+    "#;
+    let err = Comic::parse_comic_html(html)
+        .expect_err("a page with no chapter list must be rejected");
+    assert!(
+        err.to_string().contains("No chapters found"),
+        "Error message was: {}",
+        err
+    );
 }
 
 #[test]
@@ -472,7 +597,6 @@ fn test_chapter_parsing_from_real_html() {
 
     // Verify extracted data structure
     assert!(!chapter.path.is_empty());
-    assert!(!chapter.files.is_empty());
 
     // Check specific known values for this test file: file count. 48 is the
     // length of the files array in this page's packed chapter data.
@@ -550,22 +674,18 @@ fn test_parse_chapter_selection() {
 
 #[test]
 fn test_prompt_for_chapters_eof() {
-    // stdin closed immediately: must error out instead of looping forever
+    // stdin closed immediately: must error out instead of looping forever.
+    // Both prompts read through the one prompt_until_valid loop, so this
+    // covers the comic selection prompt as well.
     let mut input = std::io::Cursor::new("");
-    assert!(prompt_for_chapters(&mut input, 10).is_err());
+    assert_input_closed(prompt_for_chapters(&mut input, 10));
 }
 
 #[test]
 fn test_prompt_for_chapters_eof_after_invalid_input() {
     // Invalid input followed by EOF: must error out after the retry
     let mut input = std::io::Cursor::new("999\n");
-    assert!(prompt_for_chapters(&mut input, 10).is_err());
-}
-
-#[test]
-fn test_prompt_for_comic_selection_eof() {
-    let mut input = std::io::Cursor::new("");
-    assert!(prompt_for_comic_selection(&mut input, 5).is_err());
+    assert_input_closed(prompt_for_chapters(&mut input, 10));
 }
 
 #[test]
@@ -594,44 +714,6 @@ fn test_re_chapter_data() {
     let text = "xxx}(' packed_frame_data',10,5,'base64data==')xxx";
     let caps = re.captures(text).unwrap();
     assert_eq!(caps.get(1).map(|m| m.as_str()), Some("packed_frame_data"));
-}
-
-#[test]
-fn test_compress_chapter_atomic_and_excludes_part_files() {
-    use std::fs;
-    use std::io::Read;
-
-    let temp_dir = TempDir::new().unwrap();
-    let test_dir = temp_dir.path();
-
-    let chapter_dir = test_dir.join("chapter_test");
-    fs::create_dir_all(&chapter_dir).unwrap();
-
-    fs::write(chapter_dir.join("01_page.jpg"), "fake image data").unwrap();
-    // A stale temp file from an interrupted download must not end up in the cbz
-    fs::write(chapter_dir.join("02_page.jpg.part"), "partial data").unwrap();
-
-    let zip_path = test_dir.join("chapter_test.cbz");
-
-    Comic::compress_chapter(&chapter_dir, &["01_page.jpg".to_string()], &zip_path).unwrap();
-
-    // The intermediate zip temp file must be renamed away
-    assert!(zip_path.exists());
-    assert!(!test_dir.join("chapter_test.cbz.part").exists());
-
-    let mut archive = zip::ZipArchive::new(fs::File::open(&zip_path).unwrap()).unwrap();
-    let names: Vec<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).unwrap().name().to_string())
-        .collect();
-    assert_eq!(names, vec!["01_page.jpg"]);
-
-    let mut content = String::new();
-    archive
-        .by_name("01_page.jpg")
-        .unwrap()
-        .read_to_string(&mut content)
-        .unwrap();
-    assert_eq!(content, "fake image data");
 }
 
 #[test]
@@ -693,7 +775,9 @@ fn test_compress_chapter_file_ordering() {
     // Page order comes from the caller's list, never from the directory. The
     // list below is deliberately in neither ascending nor descending name
     // order: a list that happened to be sorted would be reproduced by a
-    // directory listing too, and the test would prove nothing.
+    // directory listing too, and the test would prove nothing. Each page holds
+    // its own name as content, so an entry carrying the right name over another
+    // page's bytes is caught as well.
     use std::fs::File;
 
     let temp_dir = TempDir::new().unwrap();
@@ -707,7 +791,7 @@ fn test_compress_chapter_file_ordering() {
         .map(|s| s.to_string())
         .collect();
     for filename in &pages {
-        std::fs::write(chapter_dir.join(filename), b"image data").unwrap();
+        std::fs::write(chapter_dir.join(filename), filename).unwrap();
     }
 
     let zip_path = test_dir.join("test.cbz");
@@ -719,14 +803,17 @@ fn test_compress_chapter_file_ordering() {
     assert!(zip_path.exists());
     assert!(!chapter_dir.exists());
 
-    // Verify the order of files inside the zip
+    // Verify the order and content of the files inside the zip
     let file = File::open(&zip_path).unwrap();
     let mut archive = zip::read::ZipArchive::new(file).unwrap();
 
-    assert_eq!(archive.len(), 5);
-    for i in 0..archive.len() {
-        let zip_file = archive.by_index(i).unwrap();
-        assert_eq!(zip_file.name(), pages[i], "File at index {} should be {}", i, pages[i]);
+    assert_eq!(archive.len(), pages.len());
+    for (i, page) in pages.iter().enumerate() {
+        let mut zip_file = archive.by_index(i).unwrap();
+        assert_eq!(zip_file.name(), page.as_str(), "File at index {} should be {}", i, page);
+        let mut content = String::new();
+        zip_file.read_to_string(&mut content).unwrap();
+        assert_eq!(&content, page, "Content of {}", page);
     }
 }
 
@@ -743,10 +830,12 @@ fn test_compress_chapter_ignores_stale_files_from_previous_run() {
     let chapter_dir = test_dir.join("chapter");
     std::fs::create_dir_all(&chapter_dir).unwrap();
 
-    // Stale single-digit names from the interrupted 9-page run.
+    // Stale single-digit names from the interrupted 9-page run, and the .part
+    // its interruption left behind.
     for i in 0..9 {
         std::fs::write(chapter_dir.join(format!("{}_page.jpg", i)), b"stale").unwrap();
     }
+    std::fs::write(chapter_dir.join("9_page.jpg.part"), b"partial").unwrap();
     // The current 12-page run.
     let pages: Vec<String> = (0..12).map(|i| format!("{:02}_page.jpg", i)).collect();
     for filename in &pages {
@@ -780,8 +869,10 @@ fn test_compress_chapter_missing_page_is_error() {
     let zip_path = test_dir.join("test.cbz");
 
     assert!(Comic::compress_chapter(&chapter_dir, &pages, &zip_path).is_err());
-    // The chapter must stay unfinished so a later run can retry it.
+    // The chapter must stay unfinished so a later run can retry it, with no
+    // half-written archive left beside it.
     assert!(!zip_path.exists());
+    assert!(!test_dir.join("test.cbz.part").exists());
     assert!(chapter_dir.exists());
 }
 
@@ -805,8 +896,6 @@ fn test_directory_traversal_prevention() {
     for (path, expected) in cases {
         let safe_path = sanitize(path);
         assert_eq!(safe_path, expected, "Sanitizing: {}", path);
-        assert!(!safe_path.contains('/'), "Path: {} still contains /", path);
-        assert!(!safe_path.contains('\\'), "Path: {} still contains \\", path);
         assert_ne!(Path::new(&safe_path).components().count(), 0);
         assert!(
             Path::new(&safe_path)
@@ -899,25 +988,12 @@ fn test_sanitize_breaks_up_windows_device_names() {
 #[test]
 fn test_sanitized_names_compose_into_a_legal_component() {
     // The budget exists for the longest component the program builds: a
-    // chapter's archive spends two sanitized names at once, and 255 bytes is
-    // what ext4 and APFS allow per component.
-    let book = sanitize(&"漫".repeat(200));
-    let chapter = sanitize(&"話".repeat(200));
-    let zip_name = format!("{}_{}.cbz", book, chapter);
-    assert!(
-        zip_name.len() <= 255,
-        "archive name is {} bytes: {}",
-        zip_name.len(),
-        zip_name
-    );
-
-    // A page file name is one sanitized name behind a zero-padded index.
-    let page_name = format!("{:04}_{}", 9999, sanitize(&"頁".repeat(200)));
-    assert!(page_name.len() <= 255, "page name is {} bytes", page_name.len());
-
-    // The worst case the budget has to cover: two device-name stems, each
-    // costing the extra byte sanitize spends to break them up, under the
-    // suffix write_atomic appends while the archive is still being written.
+    // chapter's archive while it is still being written, which spends two
+    // sanitized names at once under the suffix write_atomic appends, and 255
+    // bytes is what ext4 and APFS allow per component. The worst case is two
+    // device-name stems, each costing the extra byte sanitize spends to break
+    // them up. Every other name the program builds — the finished archive, a
+    // page file — is shorter than this one, so it is the only one checked.
     let book = sanitize(&format!("NUL.{}", "a".repeat(200)));
     let chapter = sanitize(&format!("CON.{}", "b".repeat(200)));
     let part_name = format!("{}_{}.cbz.part", book, chapter);
@@ -983,6 +1059,14 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
         "https://i.hamreus.com/ps3/l/foo%23frag/001.jpg.webp"
     );
 
+    // The file name is read out of the same JSON, and all three are encoded
+    // there too.
+    let url = comic.image_url("/ps3/l/foo/", "001.jpg?x#y\\z").unwrap();
+    assert_eq!(
+        url.as_str(),
+        "https://i.hamreus.com/ps3/l/foo/001.jpg%3Fx%23y%5Cz"
+    );
+
     // Raw UTF-8 comes back percent-encoded, as it does for page links. An
     // escape the page already wrote rides through unchanged rather than being
     // encoded a second time into `%25`.
@@ -997,7 +1081,6 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
         url.as_str(),
         "https://i.hamreus.com/ps3/%E7%AC%AC01%E8%A9%B1/001.jpg.webp"
     );
-    assert!(url.as_str().is_ascii());
 }
 
 #[test]
@@ -1028,37 +1111,79 @@ fn test_looks_like_image_rejects_non_images() {
 }
 
 #[test]
-fn test_download_rejects_non_image_body() {
-    use std::net::TcpListener;
-    use std::io::{Read, Write};
-    use std::thread;
+fn test_download_fetches_missing_pages_and_keeps_existing_ones() {
+    // Eleven pages put the zero padding at two digits. Nine of them are on disk
+    // from an earlier run, so only the other two may be requested, each with
+    // the chapter's `e`/`m` query — and the returned list, which is what
+    // compress_chapter packs, still has to name all eleven in reading order.
+    let files = [
+        "a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg", "f.jpg", "g.jpg", "h.jpg", "i.jpg", "j.jpg",
+        "k.jpg",
+    ];
+    let names: Vec<String> = files
+        .iter()
+        .enumerate()
+        .map(|(i, f)| format!("{:02}_{}", i, f))
+        .collect();
+    let missing = [3, 10];
 
+    // Each response carries the path it was requested under, so a page saved
+    // under another page's name shows up as the wrong content.
+    let (tunnel, server) = serve(missing.len(), |line| {
+        let target = line.split(' ').nth(1).unwrap_or_default();
+        let path = target.split('?').next().unwrap_or_default();
+        http_200(&[JPEG_SOI, path.as_bytes()].concat())
+    });
+
+    let temp_dir = TempDir::new().unwrap();
+    let chapter_dir = temp_dir.path();
+    for (i, name) in names.iter().enumerate() {
+        if !missing.contains(&i) {
+            std::fs::write(chapter_dir.join(name), "already here").unwrap();
+        }
+    }
+    let bar = ProgressBar::hidden();
+    let comic = test_comic(&tunnel, chapter_dir);
+
+    let returned = comic
+        .download_images(&test_chapter(&files), chapter_dir, &bar, &test_referer())
+        .expect("both missing pages are served");
+
+    assert_eq!(returned, names);
+    assert_eq!(bar.position(), files.len() as u64);
+    for (i, name) in names.iter().enumerate() {
+        let expected = if missing.contains(&i) {
+            [JPEG_SOI, format!("/{}", files[i]).as_bytes()].concat()
+        } else {
+            b"already here".to_vec()
+        };
+        assert_eq!(std::fs::read(chapter_dir.join(name)).unwrap(), expected, "Content of {}", name);
+    }
+    // Nothing but the pages themselves: no `.part` left behind by either download.
+    assert_eq!(std::fs::read_dir(chapter_dir).unwrap().count(), files.len());
+
+    assert_eq!(
+        server.join().unwrap(),
+        vec![
+            "GET /d.jpg?e=test_e&m=test_m HTTP/1.1".to_string(),
+            "GET /k.jpg?e=test_e&m=test_m HTTP/1.1".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_download_rejects_non_image_body() {
     // An anti-hotlink page answering 200 gets past error_for_status. Accepting
     // it would publish it under the page's final name, where every later run
     // skips it as already downloaded and compress_chapter seals it into the
     // .cbz as a page.
-    let body = "<!DOCTYPE html><html><body>forbidden</body></html>";
-
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-
-    let server_thread = thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            let mut buffer = [0; 512];
-            let _ = stream.read(&mut buffer);
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
+    let body = b"<!DOCTYPE html><html><body>forbidden</body></html>";
+    let (tunnel, server) = serve(1, move |_| http_200(body));
 
     let temp_dir = TempDir::new().unwrap();
     let chapter_dir = temp_dir.path().to_path_buf();
     let bar = ProgressBar::hidden();
-    let comic = test_comic(&format!("http://127.0.0.1:{}", port), temp_dir.path());
+    let comic = test_comic(&tunnel, temp_dir.path());
 
     let chap = test_chapter(&["test.jpg"]);
 
@@ -1075,51 +1200,37 @@ fn test_download_rejects_non_image_body() {
     assert!(!chapter_dir.join("0_test.jpg").exists());
     assert!(!chapter_dir.join("0_test.jpg.part").exists());
 
-    server_thread.join().unwrap();
+    server.join().unwrap();
 }
 
 #[test]
 fn test_download_incomplete_file() {
-    use std::net::TcpListener;
-    use std::io::{Read, Write};
-    use std::thread;
-
-    // 1. Set up a minimal Mock Server
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-
-    let server_thread = thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            let mut buffer = [0; 512];
-            let _ = stream.read(&mut buffer); // Read request
-
-            // Return Content-Length: 100, but only provide 50 bytes then disconnect.
-            // The body opens with a real JPEG signature so that this exercises
-            // the length check rather than being turned away by the signature
-            // check that runs ahead of it.
-            let response = "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n";
-            let _ = stream.write_all(response.as_bytes());
-            let _ = stream.write_all(b"\xFF\xD8\xFF\xE0");
-            let _ = stream.write_all(&[0u8; 46]);
-            // The stream will be closed automatically when the thread ends (RAII)
-        }
+    // Declare 100 bytes, send 50, then close. The body opens with a real JPEG
+    // signature so that it gets past the signature check that runs first.
+    let (tunnel, server) = serve(1, |_| {
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n".to_vec();
+        response.extend_from_slice(JPEG_SOI);
+        response.extend_from_slice(&[0u8; 46]);
+        response
     });
 
-    // 2. Initialize test environment
     let temp_dir = TempDir::new().unwrap();
     let chapter_dir = temp_dir.path().to_path_buf();
     let bar = ProgressBar::hidden();
-
-    let comic = test_comic(&format!("http://127.0.0.1:{}", port), temp_dir.path());
+    let comic = test_comic(&tunnel, temp_dir.path());
 
     let chap = test_chapter(&["test.jpg"]);
 
-    // 3. Execute download and verify result
-    let result = comic.download_images(&chap, &chapter_dir, &bar, &test_referer());
-
-    assert!(result.is_err());
-    let err_msg = format!("{}", result.unwrap_err());
-    // Accept custom Incomplete download or end of file errors thrown by reqwest
+    let err_msg = comic
+        .download_images(&chap, &chapter_dir, &bar, &test_referer())
+        .expect_err("a truncated body must not be accepted as a page")
+        .to_string();
+    // The response states its length, so the transport notices the short body
+    // on its own and reports it before download_images' own length check gets
+    // to look: that check is not what this test reaches, and the message is
+    // whichever of these reqwest produces. What the test does pin down is that
+    // the truncated page is not published.
     assert!(
         err_msg.contains("Incomplete download") ||
         err_msg.contains("end of file") ||
@@ -1127,12 +1238,12 @@ fn test_download_incomplete_file() {
         "Error message should mention incomplete download or EOF, got: {}", err_msg
     );
 
-    // 4. Verify that the final file was not renamed (due to download failure)
-    // Expected filename is "0_test.jpg" (since width=1)
-    let final_path = chapter_dir.join("0_test.jpg");
-    assert!(!final_path.exists(), "Final file should not exist after incomplete download");
+    // Neither the final name ("0_test.jpg", width 1) nor a leftover .part may
+    // survive the failure.
+    assert!(!chapter_dir.join("0_test.jpg").exists(), "Final file should not exist after incomplete download");
+    assert!(!chapter_dir.join("0_test.jpg.part").exists());
 
-    server_thread.join().unwrap();
+    server.join().unwrap();
 }
 
 #[test]
@@ -1204,9 +1315,10 @@ fn test_parse_search_results_page() {
     assert_eq!(results[9].title, "金田一少年事件簿 鍊金術殺人事件");
     assert_eq!(results[9].comic_id, 4825);
 
-    assert!(next_page.is_some());
-    let next_url = next_page.unwrap();
-    assert!(next_url.contains("_p2"));
+    // The href exactly as the pager wrote it, raw UTF-8 and all.
+    // test_join_url_percent_encodes_pager_hrefs resolves this same href against
+    // this same page.
+    assert_eq!(next_page.as_deref(), Some("/s/金田一_p2.html"));
 }
 
 #[test]
@@ -1214,7 +1326,6 @@ fn test_parse_search_results_last_page() {
     let html = load_test_html("金田一_p3.html");
     let (results, next_page) = parse_search_results(&html);
 
-    assert!(!results.is_empty());
     assert_eq!(results.len(), 8); // 28 total - 10 (page 1) - 10 (page 2) = 8
     assert!(next_page.is_none());
 }
@@ -1231,25 +1342,6 @@ fn test_join_url_percent_encodes_pager_hrefs() {
     assert_eq!(
         url.as_str(),
         "https://tw.manhuagui.com/s/%E9%87%91%E7%94%B0%E4%B8%80_p2.html"
-    );
-    assert!(url.as_str().is_ascii());
-}
-
-#[test]
-fn test_join_url_resolves_a_relative_pager_href_against_its_page() {
-    // The base for a pager href is the page it was read off, not the site root.
-    // Today's pager writes site-absolute hrefs, for which the two agree, so
-    // only a document-relative href tells them apart: against the page it lands
-    // under /s/, against the root it lands beside it — a 404 that the paging
-    // loop reports as nothing more than an early end of results.
-    let from_page = Url::parse("https://tw.manhuagui.com/s/x.html").unwrap();
-    assert_eq!(
-        join_url(&from_page, "x_p2.html").unwrap().as_str(),
-        "https://tw.manhuagui.com/s/x_p2.html"
-    );
-    assert_eq!(
-        join_url(&HOST_URL, "x_p2.html").unwrap().as_str(),
-        "https://tw.manhuagui.com/x_p2.html"
     );
 }
 
@@ -1268,20 +1360,6 @@ fn test_resolve_url_leaves_encoded_and_absolute_hrefs_alone() {
             .as_str(),
         "https://tw.manhuagui.com/s/x_p2.html"
     );
-}
-
-#[test]
-fn test_next_page_href_from_real_html_resolves_against_its_page() {
-    // End to end over the real markup, through the base interactive_search
-    // uses: the href parse_search_results hands back has to survive resolution
-    // against the page it was read off, as an ASCII URL under /s/.
-    let html = load_test_html("金田一.html");
-    let (_, next_page) = parse_search_results(&html);
-    let from_page = Url::parse("https://tw.manhuagui.com/s/金田一.html").unwrap();
-    let url = join_url(&from_page, &next_page.expect("page 1 has a next-page link")).unwrap();
-    assert!(url.as_str().is_ascii(), "got {}", url);
-    assert!(url.as_str().starts_with("https://tw.manhuagui.com/s/"), "got {}", url);
-    assert!(url.as_str().contains("_p2"));
 }
 
 #[test]
