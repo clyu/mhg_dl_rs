@@ -733,19 +733,19 @@ fn test_re_chapter_data() {
 
 #[test]
 fn test_illegal_chars_windows_forbidden() {
-    // The regex covers every character Windows forbids in file names:
-    // \, /, :, *, ?, ", <, >, | plus the C0 control characters and DEL.
-    let re = &*RE_ILLEGAL_CHARS;
-    let forbidden_by_regex = [
-        '\\', '/', ':', '*', '?', '"', '<', '>', '|', '\0', '\n', '\r', '\t', '\x1f', '\x7f',
-    ];
+    // Every character Windows forbids in file names — \, /, :, *, ?, ", <, >, |
+    // plus all of the C0 controls and DEL — becomes exactly one `_`. The list
+    // is written out here rather than read from ILLEGAL_NAME_CHARS, so that a
+    // character dropped from the constant is caught instead of agreed with.
+    let forbidden = ('\0'..='\x1f')
+        .chain(['\x7f'])
+        .chain(['\\', '/', ':', '*', '?', '"', '<', '>', '|']);
 
-    for ch in &forbidden_by_regex {
-        let input = format!("file{}name", ch);
-        let output = re.replace_all(&input, "_").to_string();
-        assert!(
-            !output.contains(*ch),
-            "Character '{}' should be replaced",
+    for ch in forbidden {
+        assert_eq!(
+            sanitize(&format!("file{ch}name")),
+            "file_name",
+            "Character {:?} should be replaced",
             ch
         );
     }
@@ -753,11 +753,10 @@ fn test_illegal_chars_windows_forbidden() {
 
 #[test]
 fn test_illegal_chars_legal_characters_preserved() {
-    // Everything the regex does *not* cover must survive untouched: the
+    // Everything sanitize does *not* replace must survive untouched: the
     // punctuation that is legal in a file name, and every non-ASCII script a
-    // comic title can be written in.
-    let re = &*RE_ILLEGAL_CHARS;
-
+    // comic title can be written in. None of these has anything else for
+    // sanitize to trim, cut or break up, so each must come back as it went in.
     let test_cases = [
         "file-name",      // Hyphen
         "file_name",      // Underscore
@@ -773,12 +772,12 @@ fn test_illegal_chars_legal_characters_preserved() {
         "マンガ",          // Japanese
         "만화",            // Korean
         "file_🎯name",    // Emoji
+        "file\u{80}name", // C1 control: legal, and past the ASCII controls
     ];
 
     for input in test_cases {
-        let output = re.replace_all(input, "_").to_string();
         assert_eq!(
-            output, input,
+            sanitize(input), input,
             "Legal filename characters should be preserved: {}",
             input
         );

@@ -87,8 +87,6 @@ static RE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?-u:\w+)").unwr
 /// `unescape_packed_frame` is what undoes them before the frame is used.
 static RE_CHAPTER_DATA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"}\('\s*(.*?)',([0-9]+),([0-9]+),'([0-9A-Za-z_+/=]+)'").unwrap());
-static RE_ILLEGAL_CHARS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r##"[\x00-\x1f\x7f\\/:*?"<>|]"##).unwrap());
 
 static SEL_COMICS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("div.book-result ul li.cf").unwrap());
@@ -524,6 +522,11 @@ const RESERVED_DEVICE_NAMES: [&str; 22] = [
     "LPT7", "LPT8", "LPT9",
 ];
 
+/// The printable characters Windows forbids in a file name. The rest of what
+/// it forbids is the C0 controls and DEL, which `sanitize` tests for with
+/// `char::is_ascii_control` instead of spelling out here.
+const ILLEGAL_NAME_CHARS: &str = r#"\/:*?"<>|"#;
+
 /// Make `s` usable as a single path component: strip surrounding whitespace,
 /// replace characters that are invalid in file names with `_`, cut it down to
 /// `MAX_NAME_BYTES` without leaving a trailing dot or space, and break up a
@@ -541,7 +544,9 @@ fn sanitize(s: &str) -> String {
     // once, and replaced first they would become `_`s that no trim removes —
     // a title ending in a newline would keep an underscore it never showed.
     // Replacing cannot put whitespace back at either end, so one trim is enough.
-    let cleaned = RE_ILLEGAL_CHARS.replace_all(s.trim(), "_");
+    let cleaned = s
+        .trim()
+        .replace(|c: char| c.is_ascii_control() || ILLEGAL_NAME_CHARS.contains(c), "_");
     // Cut at the last char boundary at or below the budget: slicing a multi-byte
     // character in half would panic, and `floor_char_boundary` is still
     // unstable. At most three steps, since a UTF-8 sequence is at most 4 bytes.
