@@ -726,12 +726,13 @@ fn prompt_for_next_page() -> Result<bool> {
             _ => {}
         }
     };
-    // Drop anything already typed ahead of the key that ended the wait, while
-    // raw mode still owns the input. A user answering this prompt with "q" and
-    // Enter would otherwise leave the newline in the terminal buffer, where the
-    // next prompt reads it as a blank line and answers with a spurious
-    // "Invalid selection". A zero timeout only takes what has already arrived,
-    // so this never waits on a user who typed nothing more.
+    // Drop whatever arrived together with the key that ended the wait — the
+    // rest of a paste, say — while raw mode still owns the input, so that a
+    // stale key cannot answer the next page prompt on its own. A zero timeout
+    // only takes what has already arrived, so this never waits, and a key
+    // pressed after this point is not caught. The usual one is the Enter a
+    // user types after "q", which reaches the selection prompt as a blank
+    // line; `prompt_until_valid` is what ignores it.
     while event::poll(Duration::ZERO).unwrap_or(false) && event::read().is_ok() {}
     // Leave raw mode before the newline, not after: in raw mode a newline moves
     // down without returning to column 0, so the line following this prompt
@@ -1153,6 +1154,12 @@ fn prompt_line<R: io::BufRead>(reader: &mut R, prompt: &str) -> Result<String> {
 
 /// Prompt until `parse` accepts a line. A rejected line prints `error` and
 /// re-prompts; only a closed input stream ends the loop, as an error.
+///
+/// A blank line re-prompts without the error. It is a stray Enter rather than
+/// an answer — most often the one typed after the search pager's single-key
+/// prompt, which returns on the key alone and has left raw mode by the time
+/// the Enter arrives. Neither caller accepts an empty line anyway, so this
+/// changes only what is printed.
 fn prompt_until_valid<R: io::BufRead, T>(
     reader: &mut R,
     prompt: &str,
@@ -1161,6 +1168,9 @@ fn prompt_until_valid<R: io::BufRead, T>(
 ) -> Result<T> {
     loop {
         let input = prompt_line(reader, prompt)?;
+        if input.is_empty() {
+            continue;
+        }
         if let Some(value) = parse(&input) {
             return Ok(value);
         }
