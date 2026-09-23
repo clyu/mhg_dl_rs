@@ -94,6 +94,20 @@ fn assert_input_closed<T: std::fmt::Debug>(result: std::result::Result<T, AppErr
     );
 }
 
+/// Assert that `result` failed, with an error whose message mentions `needle`.
+/// Either failure names what came back instead. The caller is tracked, so the
+/// panic points at the test rather than at this helper.
+#[track_caller]
+fn assert_err_contains<T: std::fmt::Debug>(result: std::result::Result<T, AppError>, needle: &str) {
+    match result {
+        Ok(value) => panic!("expected an error mentioning {needle:?}, got Ok({value:?})"),
+        Err(err) => assert!(
+            err.to_string().contains(needle),
+            "expected an error mentioning {needle:?}, got: {err}"
+        ),
+    }
+}
+
 /// A JPEG signature, for mock responses that have to get past
 /// `looks_like_image`.
 const JPEG_SOI: &[u8] = b"\xFF\xD8\xFF\xE0";
@@ -310,13 +324,9 @@ fn test_unpack_packed_without_json_is_error() {
     // The unpacked script must still contain a `({...})` payload; a page whose
     // frame carries something else fails with the dedicated message rather
     // than reaching serde.
-    let err_msg = unpack_packed("SMH.imgData is not here", 10, 1, &["sl"])
-        .expect_err("a frame with no JSON payload must be rejected")
-        .to_string();
-    assert!(
-        err_msg.contains("Could not find JSON data"),
-        "Error message was: {}",
-        err_msg
+    assert_err_contains(
+        unpack_packed("SMH.imgData is not here", 10, 1, &["sl"]),
+        "Could not find JSON data",
     );
 }
 
@@ -328,10 +338,7 @@ fn test_unpack_packed_dictionary_size_mismatch() {
     let c = 10;  // Request 10 items in dictionary
     let data = vec!["item1", "item2"];  // But only provide 2
 
-    let result = unpack_packed(frame, a, c, &data);
-    assert!(result.is_err());
-    let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("mismatch"), "Error message should mention mismatch: {}", err_msg);
+    assert_err_contains(unpack_packed(frame, a, c, &data), "mismatch");
 }
 
 #[test]
@@ -391,15 +398,7 @@ fn test_unpack_packed_empty_files_is_error() {
     // empty .cbz and be treated as already downloaded forever.
     let frame = format!("SMH.imgData{}", packed_payload("[]"));
 
-    let result = unpack_packed(&frame, 10, 5, &PACKED_DICT);
-
-    assert!(result.is_err());
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("no image files"),
-        "Error message was: {}",
-        err_msg
-    );
+    assert_err_contains(unpack_packed(&frame, 10, 5, &PACKED_DICT), "no image files");
 }
 
 #[test]
@@ -498,13 +497,7 @@ fn test_comic_metadata_extraction_undecodable_viewstate_is_no_chapters() {
             <input type="hidden" id="__VIEWSTATE" value="!!!!">
         </body></html>
     "#;
-    let err = parse_comic_html(html)
-        .expect_err("a page with no chapter list must be rejected");
-    assert!(
-        err.to_string().contains("No chapters found"),
-        "Error message was: {}",
-        err
-    );
+    assert_err_contains(parse_comic_html(html), "No chapters found");
 }
 
 #[test]
@@ -1221,14 +1214,7 @@ fn test_download_rejects_non_image_body() {
     let fx = DownloadFixture::new(&tunnel);
     let chapter_dir = fx.dir.path();
 
-    let err = fx
-        .download(&["test.jpg"])
-        .expect_err("an HTML body must not be accepted as a page");
-    assert!(
-        err.to_string().contains("is not an image"),
-        "Error message was: {}",
-        err
-    );
+    assert_err_contains(fx.download(&["test.jpg"]), "is not an image");
 
     // Neither the final name nor a leftover .part may survive the rejection.
     assert!(!chapter_dir.join("0_test.jpg").exists());
