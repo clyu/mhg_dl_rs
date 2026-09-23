@@ -524,9 +524,10 @@ const RESERVED_DEVICE_NAMES: [&str; 22] = [
     "LPT7", "LPT8", "LPT9",
 ];
 
-/// Make `s` usable as a single path component: replace characters that are
-/// invalid in file names with `_`, strip surrounding whitespace and trailing
-/// dots, cut it down to `MAX_NAME_BYTES`, and break up a Windows device name.
+/// Make `s` usable as a single path component: strip surrounding whitespace,
+/// replace characters that are invalid in file names with `_`, cut it down to
+/// `MAX_NAME_BYTES` without leaving a trailing dot or space, and break up a
+/// Windows device name.
 /// Windows rejects names ending in a dot or a space, and a name consisting only
 /// of dots (`.`, `..`) would otherwise resolve to a directory outside the
 /// intended one. Falls back to `_` when nothing usable is left.
@@ -536,19 +537,22 @@ const RESERVED_DEVICE_NAMES: [&str; 22] = [
 /// an existing archive as done, so a collision shows up as a chapter skipped
 /// rather than as one overwriting another.
 fn sanitize(s: &str) -> String {
-    let replaced = RE_ILLEGAL_CHARS.replace_all(s, "_");
-    let trimmed = replaced.trim();
+    // Trim before replacing: `\t`, `\n` and `\r` are whitespace and illegal at
+    // once, and replaced first they would become `_`s that no trim removes —
+    // a title ending in a newline would keep an underscore it never showed.
+    // Replacing cannot put whitespace back at either end, so one trim is enough.
+    let cleaned = RE_ILLEGAL_CHARS.replace_all(s.trim(), "_");
     // Cut at the last char boundary at or below the budget: slicing a multi-byte
     // character in half would panic, and `floor_char_boundary` is still
     // unstable. At most three steps, since a UTF-8 sequence is at most 4 bytes.
-    let bounded = if trimmed.len() > MAX_NAME_BYTES {
+    let bounded = if cleaned.len() > MAX_NAME_BYTES {
         let mut end = MAX_NAME_BYTES;
-        while !trimmed.is_char_boundary(end) {
+        while !cleaned.is_char_boundary(end) {
             end -= 1;
         }
-        &trimmed[..end]
+        &cleaned[..end]
     } else {
-        trimmed
+        &cleaned[..]
     };
     // The only place a trailing dot or space is stripped — Windows rejects a
     // name ending in either, and the cut above can expose one that was not at
@@ -817,7 +821,10 @@ fn extract_chapters_with_groups(document: &Html) -> Vec<Chapter> {
             chapters.extend(ul_elem.select(&SEL_CHAPTER_LINK).filter_map(|link_elem| {
                 let link = link_elem.value();
                 Some(Chapter {
-                    name: link.attr("title")?.to_string(),
+                    // Trimmed like the book title: the parser keeps an
+                    // attribute's padding, and the name is printed in the
+                    // listing and on the progress bar as it is stored here.
+                    name: link.attr("title")?.trim().to_string(),
                     href: link.attr("href")?.to_string(),
                     group: group.clone(),
                 })

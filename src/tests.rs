@@ -552,6 +552,21 @@ fn test_extract_chapters_group_fallback_without_h4() {
 }
 
 #[test]
+fn test_extract_chapters_trims_names() {
+    // The parser hands an attribute back with its padding intact, and the name
+    // is what the listing and the progress bar print, so it is trimmed the way
+    // the book title is.
+    let html = r#"
+        <div class="chapter-list"><ul>
+            <li><a href="/comic/1/101.html" title="&#9; 第01話&#10;">第01話</a></li>
+        </ul></div>
+    "#;
+    let chapters = extract_chapters_with_groups(&Html::parse_fragment(html));
+    assert_eq!(chapters.len(), 1);
+    assert_eq!(chapters[0].name, "第01話");
+}
+
+#[test]
 fn test_extract_chapters_skips_non_chapter_anchors() {
     // Two separate filters keep non-chapters out, and they cover different
     // cases:
@@ -922,6 +937,10 @@ fn test_sanitize_trims_and_never_returns_empty() {
     assert_eq!(sanitize("..foo"), "..foo");
     // Control characters become underscores rather than corrupting the name.
     assert_eq!(sanitize("第01話\n\t(完)"), "第01話__(完)");
+    // ...but at either end the ones that are whitespace are trimmed first, not
+    // kept as underscores the title never showed.
+    assert_eq!(sanitize("第01話\n"), "第01話");
+    assert_eq!(sanitize("\t第01話\r\n"), "第01話");
 }
 
 #[test]
