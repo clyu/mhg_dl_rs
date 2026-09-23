@@ -759,9 +759,10 @@ fn search_result_from_item(li: scraper::ElementRef<'_>) -> Option<SearchResult> 
 }
 
 /// Extract one page of search hits plus the href of the "next page" pager link,
-/// if the page has one. A page with no recognizable results is not an error
-/// here — `interactive_search` stops paging when it sees one, and reports the
-/// search as empty only if no page yielded anything at all.
+/// if the page has one that leads to a page. A page with no recognizable
+/// results is not an error here — `interactive_search` stops paging when it
+/// sees one, and reports the search as empty only if no page yielded anything
+/// at all.
 fn parse_search_results(html: &str) -> (Vec<SearchResult>, Option<String>) {
     let document = Html::parse_document(html);
 
@@ -773,6 +774,21 @@ fn parse_search_results(html: &str) -> (Vec<SearchResult>, Option<String>) {
     let next_page = document.select(&SEL_PAGER_LINKS)
         .find(|a| a.text().collect::<String>().trim() == "下一頁")
         .and_then(|a| a.value().attr("href"))
+        // A pager can disable its "next" link by pointing it at `javascript:;`
+        // rather than leaving it out. That is the last page, and has to read as
+        // one here: passed on, it would have the user press SPACE for a page
+        // that reqwest then refuses to request.
+        //
+        // Joining against the site root rather than the page's own URL is
+        // enough to learn the scheme: an href without one inherits the base's,
+        // and every page this runs on was itself fetched over http(s). An href
+        // that does not parse at all is kept, so that it goes on to fail where
+        // `interactive_search` resolves it, with a warning that names it.
+        .filter(|href| {
+            HOST_URL
+                .join(href)
+                .map_or(true, |url| matches!(url.scheme(), "http" | "https"))
+        })
         .map(|s| s.to_string());
 
     (results, next_page)
@@ -1258,17 +1274,11 @@ fn interactive_search<R: io::BufRead>(
     while let Some(href) = next_href {
         // Resolving the href and fetching what it points at are one fallible
         // step, so that both ways of failing to reach a page — a connection
-        // that drops on the way to page 3, or an href the pager wrote that is
-        // not a page at all — meet the one policy below instead of each growing
-        // its own.
-        //
-        // The resolve half is not where the second one fails: `Url::join` takes
-        // anything carrying a scheme, so a `javascript:;` href parses into a URL
-        // and is turned down a step later by reqwest, which will not request
-        // that scheme. Both arrive below as a `Reqwest` error — and only after
-        // the user has been asked to press SPACE for a page that never existed.
-        // Sparing them that would mean rejecting the href where the pager is
-        // parsed, not here.
+        // that drops on the way to page 3, or an href the pager wrote that does
+        // not parse — meet the one policy below instead of each growing its
+        // own. An href that parses to something other than a web page, such as
+        // `javascript:;`, never gets this far: `parse_search_results` drops it
+        // before the user is asked to press SPACE for it.
         //
         // The base is the page the href was read off, not the site root. The
         // pager writes site-absolute hrefs today, for which the two agree; a
@@ -1318,8 +1328,8 @@ fn interactive_search<R: io::BufRead>(
         all_results.extend(page_results);
 
         // Only the href is kept here; it is resolved at the top of the next
-        // iteration, where a href that turns out not to be a page is handled
-        // the same way as a page that cannot be reached.
+        // iteration, where an href that does not parse is handled the same way
+        // as a page that cannot be reached.
         //
         // The prompt stays inside the `Some` arm: a page with no pager link
         // must not ask the user whether to fetch one.

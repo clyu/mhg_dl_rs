@@ -1350,6 +1350,32 @@ fn test_parse_search_results_last_page() {
 }
 
 #[test]
+fn test_parse_search_results_next_link_must_lead_to_a_page() {
+    // A pager can disable "下一頁" by pointing it at `javascript:;` instead of
+    // leaving it out, and that has to read as the last page: passed on, the
+    // user would be asked to press SPACE for a page that is then refused. The
+    // scheme is matched case-insensitively, as a URL's is. A document-relative
+    // href carries no scheme of its own and still counts as a page.
+    let page = load_test_html("金田一.html");
+    let next_link = r#"href="/s/金田一_p2.html" style="margin-right:5px;">下一頁"#;
+    assert!(page.contains(next_link), "the fixture's next link has changed");
+
+    for (href, expected) in [
+        ("javascript:;", None),
+        ("JavaScript:void(0)", None),
+        ("金田一_p2.html", Some("金田一_p2.html")),
+    ] {
+        let html = page.replace(
+            next_link,
+            &format!(r#"href="{href}" style="margin-right:5px;">下一頁"#),
+        );
+        let (results, next_page) = parse_search_results(&html);
+        assert_eq!(results.len(), 10, "results must not depend on the pager");
+        assert_eq!(next_page.as_deref(), expected, "next link href {href}");
+    }
+}
+
+#[test]
 fn test_join_url_percent_encodes_pager_hrefs() {
     // The pager on a real search page emits hrefs with raw UTF-8 in them (see
     // the div.pager block in 金田一.html). They must come back out as ASCII:
