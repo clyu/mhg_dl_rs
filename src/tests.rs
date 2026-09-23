@@ -1,7 +1,5 @@
 use super::*;
-use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::thread;
 use tempfile::TempDir;
 
 // Helper function to load test HTML files
