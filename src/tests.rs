@@ -43,6 +43,33 @@ fn test_chapter(files: &[&str]) -> ChapterStruct {
     }
 }
 
+/// What every `download_images` test starts from: a comic on `tunnel`, a hidden
+/// progress bar to count pages with, and one scratch directory. That directory
+/// is where the pages land, and it doubles as the comic's `book_dir`, which
+/// `download_images` never reads.
+struct DownloadFixture {
+    comic: Comic,
+    bar: ProgressBar,
+    dir: TempDir,
+}
+
+impl DownloadFixture {
+    fn new(tunnel: &str) -> Self {
+        let dir = TempDir::new().unwrap();
+        DownloadFixture {
+            comic: test_comic(tunnel, dir.path()),
+            bar: ProgressBar::hidden(),
+            dir,
+        }
+    }
+
+    /// Download a `test_chapter` of `files` into the scratch directory.
+    fn download(&self, files: &[&str]) -> Result<Vec<String>> {
+        self.comic
+            .download_images(&test_chapter(files), self.dir.path(), &self.bar, &test_referer())
+    }
+}
+
 /// The dictionary the base-10 unpack tests pack against: key `0` is "sl", `1`
 /// "e", `2` "m", `3` "path" and `4` "files". A test that needs one word more
 /// appends it, as key `5`.
@@ -1151,22 +1178,18 @@ fn test_download_fetches_missing_pages_and_keeps_existing_ones() {
         http_200(&[JPEG_SOI, path.as_bytes()].concat())
     });
 
-    let temp_dir = TempDir::new().unwrap();
-    let chapter_dir = temp_dir.path();
+    let fx = DownloadFixture::new(&tunnel);
+    let chapter_dir = fx.dir.path();
     for (i, name) in names.iter().enumerate() {
         if !missing.contains(&i) {
             std::fs::write(chapter_dir.join(name), "already here").unwrap();
         }
     }
-    let bar = ProgressBar::hidden();
-    let comic = test_comic(&tunnel, chapter_dir);
 
-    let returned = comic
-        .download_images(&test_chapter(&files), chapter_dir, &bar, &test_referer())
-        .expect("both missing pages are served");
+    let returned = fx.download(&files).expect("both missing pages are served");
 
     assert_eq!(returned, names);
-    assert_eq!(bar.position(), files.len() as u64);
+    assert_eq!(fx.bar.position(), files.len() as u64);
     for (i, name) in names.iter().enumerate() {
         let expected = if missing.contains(&i) {
             [JPEG_SOI, format!("/{}", files[i]).as_bytes()].concat()
@@ -1195,16 +1218,11 @@ fn test_download_rejects_non_image_body() {
     // .cbz as a page.
     let body = b"<!DOCTYPE html><html><body>forbidden</body></html>";
     let (tunnel, server) = serve(1, move |_| http_200(body));
+    let fx = DownloadFixture::new(&tunnel);
+    let chapter_dir = fx.dir.path();
 
-    let temp_dir = TempDir::new().unwrap();
-    let chapter_dir = temp_dir.path().to_path_buf();
-    let bar = ProgressBar::hidden();
-    let comic = test_comic(&tunnel, temp_dir.path());
-
-    let chap = test_chapter(&["test.jpg"]);
-
-    let err = comic
-        .download_images(&chap, &chapter_dir, &bar, &test_referer())
+    let err = fx
+        .download(&["test.jpg"])
         .expect_err("an HTML body must not be accepted as a page");
     assert!(
         err.to_string().contains("is not an image"),
@@ -1230,16 +1248,11 @@ fn test_download_incomplete_file() {
         response.extend_from_slice(&[0u8; 46]);
         response
     });
+    let fx = DownloadFixture::new(&tunnel);
+    let chapter_dir = fx.dir.path();
 
-    let temp_dir = TempDir::new().unwrap();
-    let chapter_dir = temp_dir.path().to_path_buf();
-    let bar = ProgressBar::hidden();
-    let comic = test_comic(&tunnel, temp_dir.path());
-
-    let chap = test_chapter(&["test.jpg"]);
-
-    let err_msg = comic
-        .download_images(&chap, &chapter_dir, &bar, &test_referer())
+    let err_msg = fx
+        .download(&["test.jpg"])
         .expect_err("a truncated body must not be accepted as a page")
         .to_string();
     // The response states its length, so the transport notices the short body
@@ -1264,25 +1277,17 @@ fn test_download_incomplete_file() {
 
 #[test]
 fn test_download_resume_logic() {
-    use std::fs;
-
-    let temp_dir = TempDir::new().unwrap();
-    let chapter_dir = temp_dir.path().to_path_buf();
-    let bar = ProgressBar::hidden();
+    let fx = DownloadFixture::new("http://invalid-host-should-not-be-reached");
 
     // Create a dummy file that matches what download_images expects
     // For 1 file, width is 1. Filename: 0_test.jpg
-    let existing_file = chapter_dir.join("0_test.jpg");
+    let existing_file = fx.dir.path().join("0_test.jpg");
     let original_content = "already here";
     fs::write(&existing_file, original_content).unwrap();
 
-    let comic = test_comic("http://invalid-host-should-not-be-reached", temp_dir.path());
-
-    let chap = test_chapter(&["test.jpg"]);
-
     // If the logic is correct, it will see 0_test.jpg exists and skip network calls.
     // If it attempts to download, it will fail because the tunnel host is invalid.
-    let result = comic.download_images(&chap, &chapter_dir, &bar, &test_referer());
+    let result = fx.download(&["test.jpg"]);
 
     assert!(result.is_ok(), "Should skip existing file and return Ok, but got error");
     // Skipped pages still have to be reported, or compress_chapter would omit them.
@@ -1291,7 +1296,7 @@ fn test_download_resume_logic() {
     // Verify content remains unchanged and progress bar incremented
     let content = fs::read_to_string(&existing_file).unwrap();
     assert_eq!(content, original_content);
-    assert_eq!(bar.position(), 1);
+    assert_eq!(fx.bar.position(), 1);
 }
 
 #[test]
