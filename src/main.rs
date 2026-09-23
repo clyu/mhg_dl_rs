@@ -547,18 +547,10 @@ fn sanitize(s: &str) -> String {
     let cleaned = s
         .trim()
         .replace(|c: char| c.is_ascii_control() || ILLEGAL_NAME_CHARS.contains(c), "_");
-    // Cut at the last char boundary at or below the budget: slicing a multi-byte
-    // character in half would panic, and `floor_char_boundary` is still
-    // unstable. At most three steps, since a UTF-8 sequence is at most 4 bytes.
-    let bounded = if cleaned.len() > MAX_NAME_BYTES {
-        let mut end = MAX_NAME_BYTES;
-        while !cleaned.is_char_boundary(end) {
-            end -= 1;
-        }
-        &cleaned[..end]
-    } else {
-        &cleaned[..]
-    };
+    // Cut at the last char boundary at or below the budget, since slicing a
+    // multi-byte character in half would panic. A name already within the
+    // budget comes back whole: past the end, the floor is the length itself.
+    let bounded = &cleaned[..cleaned.floor_char_boundary(MAX_NAME_BYTES)];
     // The only place a trailing dot or space is stripped — Windows rejects a
     // name ending in either, and the cut above can expose one that was not at
     // the end before. Trimming before the cut as well would change nothing:
