@@ -1337,10 +1337,18 @@ fn test_sl_e_number_or_string_only() {
     }
 }
 
+/// A saved search result page, together with the URL it was fetched from —
+/// the base `parse_search_results` resolves the pager's href against. The
+/// fixtures are named after the path they were saved from.
+fn load_search_page(filename: &str) -> (String, Url) {
+    let url = Url::parse(&format!("https://tw.manhuagui.com/s/{filename}")).unwrap();
+    (load_test_html(filename), url)
+}
+
 #[test]
 fn test_parse_search_results_page() {
-    let html = load_test_html("金田一.html");
-    let (results, next_page) = parse_search_results(&html);
+    let (html, url) = load_search_page("金田一.html");
+    let (results, next_page) = parse_search_results(&html, &url);
 
     assert_eq!(results.len(), 10);
     assert_eq!(results[0].title, "金田一爸爸事件簿");
@@ -1356,8 +1364,8 @@ fn test_parse_search_results_page() {
 
 #[test]
 fn test_parse_search_results_last_page() {
-    let html = load_test_html("金田一_p3.html");
-    let (results, next_page) = parse_search_results(&html);
+    let (html, url) = load_search_page("金田一_p3.html");
+    let (results, next_page) = parse_search_results(&html, &url);
 
     assert_eq!(results.len(), 8); // 28 total - 10 (page 1) - 10 (page 2) = 8
     assert!(next_page.is_none());
@@ -1370,7 +1378,13 @@ fn test_parse_search_results_next_link_must_lead_to_a_page() {
     // user would be asked to press SPACE for a page that is then refused. The
     // scheme is matched case-insensitively, as a URL's is. A document-relative
     // href carries no scheme of its own and still counts as a page.
-    let page = load_test_html("金田一.html");
+    //
+    // Pointing it back at the page itself disables it just as well, and passed
+    // on, every SPACE would fetch and list the same page again. That is decided
+    // on what the href resolves to, not on how it is spelled: a bare fragment,
+    // an empty href, padding the parser strips, the page's own path written
+    // raw or relative, and a fragment on any of them all name this page.
+    let (page, url) = load_search_page("金田一.html");
     let next_link = r#"href="/s/金田一_p2.html" style="margin-right:5px;">下一頁"#;
     assert!(page.contains(next_link), "the fixture's next link has changed");
 
@@ -1378,12 +1392,17 @@ fn test_parse_search_results_next_link_must_lead_to_a_page() {
         ("javascript:;", None),
         ("JavaScript:void(0)", None),
         ("金田一_p2.html", Some("金田一_p2.html")),
+        ("#", None),
+        ("", None),
+        (" #", None),
+        ("/s/金田一.html", None),
+        ("金田一.html#top", None),
     ] {
         let html = page.replace(
             next_link,
             &format!(r#"href="{href}" style="margin-right:5px;">下一頁"#),
         );
-        let (results, next_page) = parse_search_results(&html);
+        let (results, next_page) = parse_search_results(&html, &url);
         assert_eq!(results.len(), 10, "results must not depend on the pager");
         assert_eq!(next_page.as_deref(), expected, "next link href {href}");
     }

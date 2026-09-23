@@ -764,11 +764,12 @@ fn search_result_from_item(li: scraper::ElementRef<'_>) -> Option<SearchResult> 
 }
 
 /// Extract one page of search hits plus the href of the "next page" pager link,
-/// if the page has one that leads to a page. A page with no recognizable
-/// results is not an error here — `interactive_search` stops paging when it
-/// sees one, and reports the search as empty only if no page yielded anything
-/// at all.
-fn parse_search_results(html: &str) -> (Vec<SearchResult>, Option<String>) {
+/// if the page has one that leads to another page. `page` is the URL the HTML
+/// was fetched from, which the href is resolved against to tell. A page with
+/// no recognizable results is not an error here — `interactive_search` stops
+/// paging when it sees one, and reports the search as empty only if no page
+/// yielded anything at all.
+fn parse_search_results(html: &str, page: &Url) -> (Vec<SearchResult>, Option<String>) {
     let document = Html::parse_document(html);
 
     let results: Vec<SearchResult> = document
@@ -776,23 +777,32 @@ fn parse_search_results(html: &str) -> (Vec<SearchResult>, Option<String>) {
         .filter_map(search_result_from_item)
         .collect();
 
+    // What a request for `page` asks the server for. A fragment never leaves
+    // the client, so it plays no part in whether a link leads elsewhere.
+    let mut this_page = page.clone();
+    this_page.set_fragment(None);
+
     let next_page = document.select(&SEL_PAGER_LINKS)
         .find(|a| trimmed_text(*a) == "下一頁")
         .and_then(|a| a.value().attr("href"))
-        // A pager can disable its "next" link by pointing it at `javascript:;`
-        // rather than leaving it out. That is the last page, and has to read as
-        // one here: passed on, it would have the user press SPACE for a page
-        // that reqwest then refuses to request.
+        // A pager can disable its "next" link rather than leave it out. That
+        // is the last page, and has to read as one here, whichever of the two
+        // dead links it is written as. Pointed at `javascript:;`, it would
+        // have the user press SPACE for a page that reqwest then refuses to
+        // request. Pointed back at this page — `#`, or an empty href — it
+        // would fetch this page again, print its results a second time under
+        // new numbers, and offer the same link again, for as long as the user
+        // kept pressing SPACE.
         //
-        // Joining against the site root rather than the page's own URL is
-        // enough to learn the scheme: an href without one inherits the base's,
-        // and every page this runs on was itself fetched over http(s). An href
-        // that does not parse at all is kept, so that it goes on to fail where
-        // `interactive_search` resolves it, with a warning that names it.
+        // Resolved against `page`, as `interactive_search` will resolve it: a
+        // document-relative href names this page only relative to the page it
+        // sits on. An href that does not parse at all is kept, so that it goes
+        // on to fail there, with a warning that names it.
         .filter(|href| {
-            HOST_URL
-                .join(href)
-                .map_or(true, |url| matches!(url.scheme(), "http" | "https"))
+            page.join(href).map_or(true, |mut url| {
+                url.set_fragment(None);
+                matches!(url.scheme(), "http" | "https") && url != this_page
+            })
         })
         .map(|s| s.to_string());
 
@@ -1293,8 +1303,9 @@ fn interactive_search<R: io::BufRead>(
         // that drops on the way to page 3, or an href the pager wrote that does
         // not parse — meet the one policy below instead of each growing its
         // own. An href that parses to something other than a web page, such as
-        // `javascript:;`, never gets this far: `parse_search_results` drops it
-        // before the user is asked to press SPACE for it.
+        // `javascript:;`, or to the page it sits on, never gets this far:
+        // `parse_search_results` drops it before the user is asked to press
+        // SPACE for it.
         //
         // The base is the page the href was read off, not the site root. The
         // pager writes site-absolute hrefs today, for which the two agree; a
@@ -1326,7 +1337,7 @@ fn interactive_search<R: io::BufRead>(
         };
         from_page = url;
 
-        let (page_results, maybe_next) = parse_search_results(&html);
+        let (page_results, maybe_next) = parse_search_results(&html, &from_page);
         let offset = all_results.len();
         for (i, r) in page_results.iter().enumerate() {
             println!("{}. {}", offset + i + 1, r.title);
