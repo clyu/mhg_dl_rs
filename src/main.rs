@@ -947,17 +947,24 @@ impl Comic {
     /// the host name, turning every page of the chapter into a DNS failure that
     /// names a host nobody wrote.
     fn image_url(&self, path: &str, file: &str) -> Result<Url> {
-        // Percent-encode the three characters that would otherwise steer the
-        // resolve instead of naming a file, in one pass over both halves.
+        // Percent-encode the characters that would otherwise steer the resolve
+        // instead of naming a file, in one pass over both halves.
         //
         // `?` and `#` end the path: everything after one becomes a query or a
         // fragment, so a page could hand back a URL that requests a directory
-        // it did not name. `\` is the one that matters, because it defeats the
-        // guard below rather than merely truncating: `Url` follows the WHATWG
-        // rules, where a backslash is a path separator for special schemes, so
+        // it did not name. `\` matters more, because it defeats the guard
+        // below rather than merely truncating: `Url` follows the WHATWG rules,
+        // where a backslash is a path separator for special schemes, so
         // `/\evil.example/x` reaches the same authority-relative state `//`
         // does — and the leading slash this function anchors is what supplies
         // the first half of it.
+        //
+        // Tab, LF and CR defeat the guard too, from the other side: the WHATWG
+        // parser deletes every one of them from its input before reading it,
+        // so they are invisible to the parser but not to the trim below.
+        // `\t/evil.example/x` passes that trim untouched, is anchored into
+        // `/\t/evil.example/x`, and reaches the parser as `//evil.example/x`.
+        // Encoded, they are path bytes like any other, and nothing deletes them.
         //
         // Nothing else is touched. Raw UTF-8 is exactly what `join_url` is
         // there to encode, an existing `%XX` has to survive unchanged, and a
@@ -969,6 +976,9 @@ impl Comic {
                 '?' => joined.push_str("%3F"),
                 '#' => joined.push_str("%23"),
                 '\\' => joined.push_str("%5C"),
+                '\t' => joined.push_str("%09"),
+                '\n' => joined.push_str("%0A"),
+                '\r' => joined.push_str("%0D"),
                 _ => joined.push(c),
             }
         }

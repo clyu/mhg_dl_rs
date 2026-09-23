@@ -1079,6 +1079,23 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
         "https://i.hamreus.com/%5Cevil.example/001.jpg.webp"
     );
 
+    // Tab, LF and CR are deleted by the WHATWG parser before it reads the
+    // input, so one sitting in front of a slash hid it from the trim of
+    // leading slashes and then vanished, leaving `//host` behind — with or
+    // without a slash of the page's own ahead of it. Encoded, it stays a path
+    // segment on the tunnel.
+    for (c, encoded) in [('\t', "%09"), ('\n', "%0A"), ('\r', "%0D")] {
+        for path in [format!("{c}/evil.example/"), format!("/{c}/evil.example/")] {
+            let url = comic.image_url(&path, "001.jpg.webp").unwrap();
+            assert_eq!(url.host_str(), Some("i.hamreus.com"), "path {path:?}");
+            assert_eq!(
+                url.as_str(),
+                format!("https://i.hamreus.com/{encoded}/evil.example/001.jpg.webp"),
+                "path {path:?}"
+            );
+        }
+    }
+
     // `?` and `#` end a path rather than sitting in one, so a page could
     // otherwise cut the request short of the directory it named.
     let url = comic.image_url("/ps3/l/foo?a=b/", "001.jpg.webp").unwrap();
@@ -1101,6 +1118,15 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
     assert_eq!(
         url.as_str(),
         "https://i.hamreus.com/ps3/l/foo/001.jpg%3Fx%23y%5Cz"
+    );
+
+    // Behind a bare "/" directory, the file name alone reaches the anchored
+    // slash, so a tab there is the same escape as one in the path.
+    let url = comic.image_url("/", "\t/evil.example/001.jpg.webp").unwrap();
+    assert_eq!(url.host_str(), Some("i.hamreus.com"));
+    assert_eq!(
+        url.as_str(),
+        "https://i.hamreus.com/%09/evil.example/001.jpg.webp"
     );
 
     // Raw UTF-8 comes back percent-encoded, as it does for page links. An
