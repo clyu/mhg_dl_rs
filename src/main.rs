@@ -746,6 +746,13 @@ fn prompt_for_next_page() -> Result<bool> {
     result
 }
 
+/// An element's text content, without the whitespace the page's indentation
+/// leaves around it. An element with no text comes back empty; whether that
+/// is acceptable is up to the caller.
+fn trimmed_text(e: scraper::ElementRef<'_>) -> String {
+    e.text().collect::<String>().trim().to_string()
+}
+
 fn search_result_from_item(li: scraper::ElementRef<'_>) -> Option<SearchResult> {
     let link = li.select(&SEL_LINK).next()?;
     let comic_id = parse_id(link.value().attr("href")?)?;
@@ -770,7 +777,7 @@ fn parse_search_results(html: &str) -> (Vec<SearchResult>, Option<String>) {
         .collect();
 
     let next_page = document.select(&SEL_PAGER_LINKS)
-        .find(|a| a.text().collect::<String>().trim() == "下一頁")
+        .find(|a| trimmed_text(*a) == "下一頁")
         .and_then(|a| a.value().attr("href"))
         // A pager can disable its "next" link by pointing it at `javascript:;`
         // rather than leaving it out. That is the last page, and has to read as
@@ -800,7 +807,7 @@ fn group_for_list(list_elem: scraper::ElementRef<'_>) -> String {
         .prev_siblings()
         .filter_map(scraper::ElementRef::wrap)
         .find(|e| e.value().name() == "h4")
-        .map(|h| h.text().collect::<String>().trim().to_string())
+        .map(trimmed_text)
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "Chapters".to_string())
 }
@@ -858,7 +865,7 @@ fn parse_comic_html(html: &str) -> Result<(String, Vec<Chapter>)> {
     let title = document
         .select(&SEL_TITLE)
         .next()
-        .map(|e| e.text().collect::<String>().trim().to_string())
+        .map(trimmed_text)
         .filter(|t| !t.is_empty())
         .ok_or_else(|| AppError::parsing("Could not find title"))?;
 
