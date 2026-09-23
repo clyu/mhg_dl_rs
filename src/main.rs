@@ -578,10 +578,11 @@ fn sanitize(s: &str) -> String {
     bounded.to_string()
 }
 
-fn decode_lz_base64(data: &str, what: &str) -> Result<String> {
-    lz_string::Decoder::new()
-        .decode_base64(data)
-        .map_err(|_| AppError::parsing(format!("Failed to decode {}", what)))
+/// `None` when `data` is not lz-string base64. Whether that is an error is the
+/// caller's call: the chapter data cannot do without its dictionary, while a
+/// `__VIEWSTATE` that does not decode is simply not a chapter list.
+fn decode_lz_base64(data: &str) -> Option<String> {
+    lz_string::Decoder::new().decode_base64(data).ok()
 }
 
 /// Only the headers that are identical on *every* request belong here.
@@ -899,7 +900,7 @@ impl Comic {
                 .select(&SEL_VIEWSTATE)
                 .next()
                 .and_then(|e| e.value().attr("value"))
-                .and_then(|vs_val| decode_lz_base64(vs_val, "__VIEWSTATE").ok())
+                .and_then(decode_lz_base64)
         {
             chapters = extract_chapters_with_groups(&Html::parse_fragment(&decoded));
         }
@@ -925,7 +926,8 @@ impl Comic {
         let c: usize = caps[3].parse()?;
         let data_b64 = &caps[4];
 
-        let data_dec = decode_lz_base64(data_b64, "base64 chapter data")?;
+        let data_dec = decode_lz_base64(data_b64)
+            .ok_or_else(|| AppError::parsing("Failed to decode base64 chapter data"))?;
         let data: Vec<&str> = data_dec.split('|').collect();
         unpack_packed(&frame, a, c, &data)
     }
