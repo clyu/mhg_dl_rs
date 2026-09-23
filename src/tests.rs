@@ -408,7 +408,7 @@ fn test_unescape_packed_frame() {
 #[test]
 fn test_comic_metadata_extraction_from_real_html() {
     let html = load_test_html("comic_40811.html");
-    let (title, chapters) = Comic::parse_comic_html(&html).expect("Failed to parse comic HTML");
+    let (title, chapters) = parse_comic_html(&html).expect("Failed to parse comic HTML");
 
     // Verify title
     assert_eq!(title, "FX戰士久留美");
@@ -430,7 +430,7 @@ fn test_comic_metadata_extraction_from_real_html() {
 #[test]
 fn test_comic_metadata_extraction_adult_gated() {
     let html = load_test_html("comic_10528.html");
-    let (title, chapters) = Comic::parse_comic_html(&html)
+    let (title, chapters) = parse_comic_html(&html)
         .expect("Failed to parse adult-gated comic HTML");
 
     assert_eq!(title, "GATE奇幻自衛隊");
@@ -458,7 +458,7 @@ fn test_comic_metadata_extraction_no_chapters_is_error() {
             <p>本作品暫不提供觀看</p>
         </body></html>
     "#;
-    assert!(Comic::parse_comic_html(html).is_err());
+    assert!(parse_comic_html(html).is_err());
 }
 
 #[test]
@@ -473,7 +473,7 @@ fn test_comic_metadata_extraction_undecodable_viewstate_is_no_chapters() {
             <input type="hidden" id="__VIEWSTATE" value="!!!!">
         </body></html>
     "#;
-    let err = Comic::parse_comic_html(html)
+    let err = parse_comic_html(html)
         .expect_err("a page with no chapter list must be rejected");
     assert!(
         err.to_string().contains("No chapters found"),
@@ -497,11 +497,11 @@ fn test_comic_title_is_trimmed_and_must_not_be_blank() {
             </ul></div>
         </body></html>
     "#;
-    let (title, _) = Comic::parse_comic_html(html).expect("Failed to parse comic HTML");
+    let (title, _) = parse_comic_html(html).expect("Failed to parse comic HTML");
     assert_eq!(title, "某漫畫");
 
     let blank = html.replace("某漫畫", " ");
-    assert!(Comic::parse_comic_html(&blank).is_err());
+    assert!(parse_comic_html(&blank).is_err());
 }
 
 #[test]
@@ -608,7 +608,7 @@ fn test_extract_chapters_skips_non_chapter_anchors() {
 #[test]
 fn test_chapter_parsing_from_real_html() {
     let html = load_test_html("comic_40811_chapter_1.html");
-    let chapter = Comic::parse_chapter_html(&html).expect("Failed to parse chapter HTML");
+    let chapter = parse_chapter_html(&html).expect("Failed to parse chapter HTML");
 
     // Verify extracted data structure
     assert!(!chapter.path.is_empty());
@@ -641,7 +641,7 @@ fn test_parse_chapter_html_unescapes_the_frame_literal() {
         "<script>eval(function(p,a,c,k,e,d){{}}('{frame}',10,0,'{payload}'.split('|'),0,{{}}))</script>"
     );
 
-    let chapter = Comic::parse_chapter_html(&page)
+    let chapter = parse_chapter_html(&page)
         .expect("escaped quotes in the frame must not abort the parse");
     assert_eq!(chapter.path, "/comic/");
     assert_eq!(chapter.files, vec!["01.jpg".to_string()]);
@@ -1415,7 +1415,7 @@ fn test_multiple_ul_chapter_ordering() {
     // Reversing per <ul> while keeping the <ul> order must therefore produce
     // one continuous ascending run across the pager boundaries.
     let html = load_test_html("comic_1128.html");
-    let (title, chapters) = Comic::parse_comic_html(&html).expect("Failed to parse comic HTML");
+    let (title, chapters) = parse_comic_html(&html).expect("Failed to parse comic HTML");
 
     assert_eq!(title, "ONE PIECE航海王");
 

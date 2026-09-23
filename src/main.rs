@@ -853,6 +853,59 @@ fn extract_chapters_with_groups(document: &Html) -> Vec<Chapter> {
     chapters
 }
 
+fn parse_comic_html(html: &str) -> Result<(String, Vec<Chapter>)> {
+    let document = Html::parse_document(html);
+    let title = document
+        .select(&SEL_TITLE)
+        .next()
+        .map(|e| e.text().collect::<String>().trim().to_string())
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| AppError::parsing("Could not find title"))?;
+
+    let mut chapters = extract_chapters_with_groups(&document);
+
+    // A gated page ships the real chapter list in the __VIEWSTATE blob.
+    // A decode failure must not abort the parse: the input may be an
+    // unrelated ASP.NET view state that merely happens to use that id, and
+    // the "no chapters" error below describes the situation far better
+    // than a decoder complaint would.
+    if chapters.is_empty()
+        && let Some(decoded) = document
+            .select(&SEL_VIEWSTATE)
+            .next()
+            .and_then(|e| e.value().attr("value"))
+            .and_then(decode_lz_base64)
+    {
+        chapters = extract_chapters_with_groups(&Html::parse_fragment(&decoded));
+    }
+
+    if chapters.is_empty() {
+        return Err(AppError::parsing(
+            "No chapters found (page layout changed or content is gated)",
+        ));
+    }
+
+    Ok((title, chapters))
+}
+
+/// The seam the chapter tests drive: fetching is `download_chapter`'s job,
+/// so everything below this line works off page text alone.
+fn parse_chapter_html(html: &str) -> Result<ChapterStruct> {
+    let caps = RE_CHAPTER_DATA
+        .captures(html)
+        .ok_or_else(|| AppError::parsing("Could not parse chapter data"))?;
+
+    let frame = unescape_packed_frame(&caps[1]);
+    let a: usize = caps[2].parse()?;
+    let c: usize = caps[3].parse()?;
+    let data_b64 = &caps[4];
+
+    let data_dec = decode_lz_base64(data_b64)
+        .ok_or_else(|| AppError::parsing("Failed to decode base64 chapter data"))?;
+    let data: Vec<&str> = data_dec.split('|').collect();
+    unpack_packed(&frame, a, c, &data)
+}
+
 impl Comic {
     /// Fetch a comic's landing page and build the download context around it.
     ///
@@ -861,7 +914,7 @@ impl Comic {
     fn new(id: usize, client: Client, args: &Args) -> Result<Self> {
         let url = resolve_url(&format!("/comic/{id}"))?;
         let res = fetch_html(&client, &url, &HOST_URL)?;
-        let (title, chapters) = Self::parse_comic_html(&res)?;
+        let (title, chapters) = parse_comic_html(&res)?;
         let book_safe = sanitize(&title);
         let book_dir = args.output_dir.join(&book_safe);
         Ok(Comic {
@@ -877,59 +930,6 @@ impl Comic {
             book_safe,
             book_dir,
         })
-    }
-
-    fn parse_comic_html(html: &str) -> Result<(String, Vec<Chapter>)> {
-        let document = Html::parse_document(html);
-        let title = document
-            .select(&SEL_TITLE)
-            .next()
-            .map(|e| e.text().collect::<String>().trim().to_string())
-            .filter(|t| !t.is_empty())
-            .ok_or_else(|| AppError::parsing("Could not find title"))?;
-
-        let mut chapters = extract_chapters_with_groups(&document);
-
-        // A gated page ships the real chapter list in the __VIEWSTATE blob.
-        // A decode failure must not abort the parse: the input may be an
-        // unrelated ASP.NET view state that merely happens to use that id, and
-        // the "no chapters" error below describes the situation far better
-        // than a decoder complaint would.
-        if chapters.is_empty()
-            && let Some(decoded) = document
-                .select(&SEL_VIEWSTATE)
-                .next()
-                .and_then(|e| e.value().attr("value"))
-                .and_then(decode_lz_base64)
-        {
-            chapters = extract_chapters_with_groups(&Html::parse_fragment(&decoded));
-        }
-
-        if chapters.is_empty() {
-            return Err(AppError::parsing(
-                "No chapters found (page layout changed or content is gated)",
-            ));
-        }
-
-        Ok((title, chapters))
-    }
-
-    /// The seam the chapter tests drive: fetching is `download_chapter`'s job,
-    /// so everything below this line works off page text alone.
-    fn parse_chapter_html(html: &str) -> Result<ChapterStruct> {
-        let caps = RE_CHAPTER_DATA
-            .captures(html)
-            .ok_or_else(|| AppError::parsing("Could not parse chapter data"))?;
-
-        let frame = unescape_packed_frame(&caps[1]);
-        let a: usize = caps[2].parse()?;
-        let c: usize = caps[3].parse()?;
-        let data_b64 = &caps[4];
-
-        let data_dec = decode_lz_base64(data_b64)
-            .ok_or_else(|| AppError::parsing("Failed to decode base64 chapter data"))?;
-        let data: Vec<&str> = data_dec.split('|').collect();
-        unpack_packed(&frame, a, c, &data)
     }
 
     /// The tunnel URL of a single page.
@@ -1135,7 +1135,7 @@ impl Comic {
         }
         let chapter_url = resolve_url(href)?;
         let html = fetch_html(&self.client, &chapter_url, &HOST_URL)?;
-        let chap = Self::parse_chapter_html(&html)?;
+        let chap = parse_chapter_html(&html)?;
         let chapter_dir = self.book_dir.join(&chap_safe);
         fs::create_dir_all(&chapter_dir)?;
         let bar = ProgressBar::new(chap.files.len() as u64);
