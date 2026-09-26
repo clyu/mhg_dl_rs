@@ -29,6 +29,11 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
+    - name: Cache cargo registry and build output
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.target }}
+
     - name: Build
       run: cargo build --verbose --release --target ${{ matrix.target }} --locked
 
