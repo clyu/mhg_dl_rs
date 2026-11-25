@@ -465,7 +465,7 @@ fn test_comic_metadata_extraction_from_real_html() {
     assert_eq!(title, "FX戰士久留美");
 
     // Verify chapters
-    assert!(chapters.len() > 0, "Should find at least one chapter");
+    assert!(!chapters.is_empty(), "Should find at least one chapter");
     // Nothing is sorted: sections keep their document order (單話 -> 單行本 ->
     // 番外篇 in this page) and only the entries within each <ul> are reversed
     // into reading order, so the very first chapter is 單話's oldest one.
@@ -1557,12 +1557,12 @@ fn test_multiple_ul_chapter_ordering() {
     // 單行本 is fully sequential, so every position can be checked: 01 → 112.
     let names = names_in("單行本");
     assert_eq!(names.len(), 112, "單行本 should span both pager <ul>s");
-    for i in 0..names.len() {
+    for (i, name) in names.iter().enumerate() {
         let expected = format!("第{:02}卷", i + 1);
         assert_eq!(
-            names[i], expected,
+            *name, expected,
             "Position {} should be {}, got {}",
-            i, expected, names[i]
+            i, expected, name
         );
     }
 
