@@ -1441,6 +1441,16 @@ fn test_resolve_url_leaves_encoded_and_absolute_hrefs_alone() {
 }
 
 #[test]
+fn test_comic_url_ends_with_a_slash() {
+    // The site answers the slashless form with a 404, so the slash is what
+    // makes the landing page reachable at all.
+    assert_eq!(
+        comic_url(26897).unwrap().as_str(),
+        "https://tw.manhuagui.com/comic/26897/"
+    );
+}
+
+#[test]
 fn test_multiple_ul_chapter_ordering() {
     // comic_1128.html spreads each section over several pager <ul>s, ordered
     // oldest block first, with the entries inside each <ul> newest first:

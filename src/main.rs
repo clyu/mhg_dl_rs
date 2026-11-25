@@ -637,6 +637,13 @@ fn resolve_url(href: &str) -> Result<Url> {
     join_url(&HOST_URL, href)
 }
 
+/// The landing page of comic `id`. The trailing slash is part of the address:
+/// the site answers `/comic/{id}` with a 404 and only `/comic/{id}/` with the
+/// page, which is also the form its own search results link to.
+fn comic_url(id: usize) -> Result<Url> {
+    resolve_url(&format!("/comic/{id}/"))
+}
+
 /// Fetch a page the way a browser fetches a top-level document; see
 /// `build_client` for why the document-shaped headers live here rather than in
 /// the client defaults.
@@ -929,7 +936,7 @@ impl Comic {
     /// `id` stays a separate argument rather than being read off `args`: it may
     /// have come from `--search` instead of the positional URL.
     fn new(id: usize, client: Client, args: &Args) -> Result<Self> {
-        let url = resolve_url(&format!("/comic/{id}"))?;
+        let url = comic_url(id)?;
         let res = fetch_html(&client, &url, &HOST_URL)?;
         let (title, chapters) = parse_comic_html(&res)?;
         let book_safe = sanitize(&title);
