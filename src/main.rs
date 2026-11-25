@@ -4,15 +4,15 @@ use crossterm::{
     terminal,
 };
 use indicatif::{ProgressBar, ProgressStyle};
+use rand::Rng;
+use regex::Regex;
 use reqwest::{
+    Url,
     blocking::Client,
     header::{HeaderMap, HeaderValue},
-    Url,
 };
 use scraper::{Html, Selector};
 use serde::Deserialize;
-use regex::Regex;
-use rand::Rng;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -26,7 +26,7 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
-use zip::{result::ZipError, write::FileOptions, CompressionMethod, ZipWriter};
+use zip::{CompressionMethod, ZipWriter, result::ZipError, write::FileOptions};
 
 const HOST: &str = "https://tw.manhuagui.com";
 const TUNNEL_CHANNELS: [&str; 3] = ["i", "eu", "us"];
@@ -61,8 +61,7 @@ static TUNNEL_HELP: LazyLock<String> = LazyLock::new(|| {
 /// between the digits and the CJK in `12345漢`, so that input does not parse —
 /// an ASCII `\b` would find one there and hand back 12345.
 static RE_ID: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:(?:https?://(?:[0-9A-Za-z_.]+\.)?manhuagui\.com)?/comic/)?([0-9]+)\b")
-        .unwrap()
+    Regex::new(r"^(?:(?:https?://(?:[0-9A-Za-z_.]+\.)?manhuagui\.com)?/comic/)?([0-9]+)\b").unwrap()
 });
 /// One dictionary key of a packed script. No `\b` anchors are needed: a scan
 /// takes the leftmost match, so `\w+` can only start where a run of word
@@ -91,8 +90,7 @@ static RE_CHAPTER_DATA: LazyLock<Regex> =
 static SEL_COMICS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("div.book-result ul li.cf").unwrap());
 static SEL_LINK: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a.bcover").unwrap());
-static SEL_TITLE: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse(".book-title h1").unwrap());
+static SEL_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".book-title h1").unwrap());
 /// A chapter link inside a `.chapter-list`. Both attributes are required by the
 /// selector so that non-chapter anchors — the `<a id="v1" href="javascript:;">`
 /// pager entries that sit in a sibling block today, ad links, "more" links — are
@@ -155,7 +153,11 @@ type Result<T> = std::result::Result<T, AppError>;
 #[clap(author, version, about)]
 struct Args {
     /// Manhuagui URL or numeric ID
-    #[clap(value_name = "URL", required_unless_present = "search", conflicts_with = "search")]
+    #[clap(
+        value_name = "URL",
+        required_unless_present = "search",
+        conflicts_with = "search"
+    )]
     url: Option<String>,
     /// Search keyword for comics
     #[clap(short, long)]
@@ -346,12 +348,7 @@ fn looks_like_image(head: &[u8]) -> bool {
         || (head.starts_with(b"RIFF") && head.get(8..12) == Some(&b"WEBP"[..])) // WebP
 }
 
-fn unpack_packed(
-    frame: &str,
-    a: usize,
-    c: usize,
-    data: &[&str],
-) -> Result<ChapterStruct> {
+fn unpack_packed(frame: &str, a: usize, c: usize, data: &[&str]) -> Result<ChapterStruct> {
     const DIGITS: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     // The dictionary key the packed script gives word number `value`: its
     // digits in base `base`, most significant first. Relies on the base having
@@ -522,9 +519,8 @@ const MAX_NAME_BYTES: usize = 120;
 /// at all. The CI matrix builds `x86_64-pc-windows-msvc`, so this is a platform
 /// the program ships on.
 const RESERVED_DEVICE_NAMES: [&str; 22] = [
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
-    "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
-    "LPT7", "LPT8", "LPT9",
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
 /// The printable characters Windows forbids in a file name. The rest of what
@@ -549,9 +545,10 @@ fn sanitize(s: &str) -> String {
     // once, and replaced first they would become `_`s that no trim removes —
     // a title ending in a newline would keep an underscore it never showed.
     // Replacing cannot put whitespace back at either end, so one trim is enough.
-    let cleaned = s
-        .trim()
-        .replace(|c: char| c.is_ascii_control() || ILLEGAL_NAME_CHARS.contains(c), "_");
+    let cleaned = s.trim().replace(
+        |c: char| c.is_ascii_control() || ILLEGAL_NAME_CHARS.contains(c),
+        "_",
+    );
     // Cut at the last char boundary at or below the budget, since slicing a
     // multi-byte character in half would panic. A name already within the
     // budget comes back whole: past the end, the floor is the length itself.
@@ -577,7 +574,10 @@ fn sanitize(s: &str) -> String {
     // arithmetic allows), and cutting to make space would just restore the
     // reserved name.
     let stem = bounded.split_once('.').map_or(bounded, |(stem, _)| stem);
-    if RESERVED_DEVICE_NAMES.iter().any(|name| stem.eq_ignore_ascii_case(name)) {
+    if RESERVED_DEVICE_NAMES
+        .iter()
+        .any(|name| stem.eq_ignore_ascii_case(name))
+    {
         return format!("{stem}_{}", &bounded[stem.len()..]);
     }
     bounded.to_string()
@@ -601,7 +601,10 @@ fn build_client() -> Result<Client> {
     for (key, value) in [
         ("accept-encoding", "gzip, deflate, br"),
         ("accept-language", "zh-TW;q=0.8,en-US,en;q=0.5,zh;q=0.3"),
-        ("user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0"),
+        (
+            "user-agent",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0",
+        ),
     ] {
         // Both halves are `&'static str` literals, so both conversions are
         // infallible in practice and panic on a typo rather than turning a bug
@@ -658,7 +661,10 @@ fn fetch_html(client: &Client, url: &Url, referer: &Url) -> Result<String> {
         // Cloned rather than handed over as a string: `IntoUrl` takes a `Url`
         // as it is and re-parses a `&str`.
         .get(url.clone())
-        .header("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header(
+            "accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
         .header("cookie", "country=TW")
         .header("priority", "u=0, i")
         .header("referer", referer.as_str())
@@ -791,7 +797,8 @@ fn parse_search_results(html: &str, page: &Url) -> (Vec<SearchResult>, Option<St
     let mut this_page = page.clone();
     this_page.set_fragment(None);
 
-    let next_page = document.select(&SEL_PAGER_LINKS)
+    let next_page = document
+        .select(&SEL_PAGER_LINKS)
         .find(|a| trimmed_text(*a) == "下一頁")
         .and_then(|a| a.value().attr("href"))
         // A pager can disable its "next" link rather than leave it out. That
@@ -949,8 +956,11 @@ impl Comic {
             // Built from a static channel name, so this parses or the channel
             // table is wrong — a bad base is a bug here, not a page's doing,
             // and failing per image request would report it 48 times over.
-            tunnel: Url::parse(&format!("https://{}.hamreus.com", TUNNEL_CHANNELS[args.tunnel]))
-                .expect("TUNNEL_CHANNELS entries form valid absolute URLs"),
+            tunnel: Url::parse(&format!(
+                "https://{}.hamreus.com",
+                TUNNEL_CHANNELS[args.tunnel]
+            ))
+            .expect("TUNNEL_CHANNELS entries form valid absolute URLs"),
             delay: Duration::from_millis(args.delay_ms),
             title,
             chapters,
@@ -1008,7 +1018,10 @@ impl Comic {
         // none would resolve relative to the base, and two would make it
         // protocol-relative, handing the request to a host of the page's
         // choosing.
-        join_url(&self.tunnel, &format!("/{}", joined.trim_start_matches('/')))
+        join_url(
+            &self.tunnel,
+            &format!("/{}", joined.trim_start_matches('/')),
+        )
     }
 
     /// Download every page of `chap` into `chapter_dir`, skipping pages that are
@@ -1111,7 +1124,10 @@ impl Comic {
                 {
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
-                        format!("Incomplete download: expected {} bytes, got {}", expected, bytes_written),
+                        format!(
+                            "Incomplete download: expected {} bytes, got {}",
+                            expected, bytes_written
+                        ),
                     )
                     .into());
                 }
@@ -1244,7 +1260,10 @@ fn prompt_until_valid<R: io::BufRead, T>(
     }
 }
 
-fn prompt_for_comic_selection<R: io::BufRead>(reader: &mut R, comics_count: usize) -> Result<usize> {
+fn prompt_for_comic_selection<R: io::BufRead>(
+    reader: &mut R,
+    comics_count: usize,
+) -> Result<usize> {
     prompt_until_valid(
         reader,
         "Select a comic (enter number): ",
@@ -1285,7 +1304,10 @@ fn parse_chapter_selection(input: &str, chapters_count: usize) -> Option<Vec<usi
     Some(indices)
 }
 
-fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) -> Result<Vec<usize>> {
+fn prompt_for_chapters<R: io::BufRead>(
+    reader: &mut R,
+    chapters_count: usize,
+) -> Result<Vec<usize>> {
     prompt_until_valid(
         reader,
         "Select chapters (e.g. 1-3,5): ",

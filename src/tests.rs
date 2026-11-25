@@ -39,7 +39,10 @@ fn test_referer() -> Url {
 /// chapter has belongs at the call site.
 fn test_chapter(files: &[&str]) -> ChapterStruct {
     ChapterStruct {
-        sl: Sl { e: NumOrStr::Str("test_e".to_string()), m: "test_m".to_string() },
+        sl: Sl {
+            e: NumOrStr::Str("test_e".to_string()),
+            m: "test_m".to_string(),
+        },
         path: "/".to_string(),
         files: files.iter().map(|f| f.to_string()).collect(),
     }
@@ -67,8 +70,12 @@ impl DownloadFixture {
 
     /// Download a `test_chapter` of `files` into the scratch directory.
     fn download(&self, files: &[&str]) -> Result<Vec<String>> {
-        self.comic
-            .download_images(&test_chapter(files), self.dir.path(), &self.bar, &test_referer())
+        self.comic.download_images(
+            &test_chapter(files),
+            self.dir.path(),
+            &self.bar,
+            &test_referer(),
+        )
     }
 }
 
@@ -172,18 +179,33 @@ fn test_parse_id() {
     assert_eq!(parse_id("12345"), Some(12345));
 
     // Test standard web URL
-    assert_eq!(parse_id("https://www.manhuagui.com/comic/12345"), Some(12345));
-    assert_eq!(parse_id("http://www.manhuagui.com/comic/12345"), Some(12345));
+    assert_eq!(
+        parse_id("https://www.manhuagui.com/comic/12345"),
+        Some(12345)
+    );
+    assert_eq!(
+        parse_id("http://www.manhuagui.com/comic/12345"),
+        Some(12345)
+    );
 
     // Test URL with trailing slash
-    assert_eq!(parse_id("https://www.manhuagui.com/comic/12345/"), Some(12345));
+    assert_eq!(
+        parse_id("https://www.manhuagui.com/comic/12345/"),
+        Some(12345)
+    );
 
     // Test mobile or other subdomain URLs
     assert_eq!(parse_id("https://m.manhuagui.com/comic/12345"), Some(12345));
-    assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345"), Some(12345));
+    assert_eq!(
+        parse_id("https://tw.manhuagui.com/comic/12345"),
+        Some(12345)
+    );
 
     // Test full chapter URL (extra path segments after the ID are fine)
-    assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345/67890.html"), Some(12345));
+    assert_eq!(
+        parse_id("https://tw.manhuagui.com/comic/12345/67890.html"),
+        Some(12345)
+    );
 
     // Test site-relative paths as found in search result hrefs
     assert_eq!(parse_id("/comic/54544/"), Some(54544));
@@ -198,7 +220,10 @@ fn test_parse_id() {
     // The ID must end at a word boundary: trailing garbage glued to the
     // digits must not be silently accepted as a valid ID.
     assert_eq!(parse_id("123abc"), None);
-    assert_eq!(parse_id("https://tw.manhuagui.com/comic/12345garbage"), None);
+    assert_eq!(
+        parse_id("https://tw.manhuagui.com/comic/12345garbage"),
+        None
+    );
 
     // Surrounding whitespace is stripped: a pasted URL or an href written with
     // padding must parse the same as the bare form.
@@ -337,8 +362,8 @@ fn test_unpack_packed_dictionary_size_mismatch() {
     // Test when c > data.len() - dictionary size doesn't match
     let frame = "{}";
     let a = 10;
-    let c = 10;  // Request 10 items in dictionary
-    let data = vec!["item1", "item2"];  // But only provide 2
+    let c = 10; // Request 10 items in dictionary
+    let data = vec!["item1", "item2"]; // But only provide 2
 
     assert_err_contains(unpack_packed(frame, a, c, &data), "mismatch");
 }
@@ -447,20 +472,35 @@ fn test_comic_metadata_extraction_from_real_html() {
     assert_eq!(chapters[0].name, "第01話");
 
     for (i, chapter) in chapters.iter().enumerate() {
-        assert!(!chapter.name.is_empty(), "Chapter {} name should not be empty", i);
-        assert!(!chapter.href.is_empty(), "Chapter {} href should not be empty", i);
-        assert!(chapter.href.starts_with("/comic/40811/"), "Chapter {} href should be valid path", i);
+        assert!(
+            !chapter.name.is_empty(),
+            "Chapter {} name should not be empty",
+            i
+        );
+        assert!(
+            !chapter.href.is_empty(),
+            "Chapter {} href should not be empty",
+            i
+        );
+        assert!(
+            chapter.href.starts_with("/comic/40811/"),
+            "Chapter {} href should be valid path",
+            i
+        );
     }
 }
 
 #[test]
 fn test_comic_metadata_extraction_adult_gated() {
     let html = load_test_html("comic_10528.html");
-    let (title, chapters) = parse_comic_html(&html)
-        .expect("Failed to parse adult-gated comic HTML");
+    let (title, chapters) =
+        parse_comic_html(&html).expect("Failed to parse adult-gated comic HTML");
 
     assert_eq!(title, "GATE奇幻自衛隊");
-    assert!(!chapters.is_empty(), "Should find chapters via __VIEWSTATE fallback");
+    assert!(
+        !chapters.is_empty(),
+        "Should find chapters via __VIEWSTATE fallback"
+    );
     for chapter in &chapters {
         assert!(!chapter.name.is_empty());
         assert!(chapter.href.starts_with("/comic/10528/"));
@@ -549,11 +589,7 @@ fn test_extract_chapters_group_from_nearest_h4() {
         .collect();
     assert_eq!(
         got,
-        vec![
-            ("單話", "第01話"),
-            ("單話", "第02話"),
-            ("單行本", "第01卷"),
-        ]
+        vec![("單話", "第01話"), ("單話", "第02話"), ("單行本", "第01卷"),]
     );
 }
 
@@ -661,13 +697,12 @@ fn test_parse_chapter_html_unescapes_the_frame_literal() {
         "<script>eval(function(p,a,c,k,e,d){{}}('{frame}',10,0,'{payload}'.split('|'),0,{{}}))</script>"
     );
 
-    let chapter = parse_chapter_html(&page)
-        .expect("escaped quotes in the frame must not abort the parse");
+    let chapter =
+        parse_chapter_html(&page).expect("escaped quotes in the frame must not abort the parse");
     assert_eq!(chapter.path, "/comic/");
     assert_eq!(chapter.files, vec!["01.jpg".to_string()]);
     assert_eq!(chapter.sl.m, "abc");
 }
-
 
 #[test]
 fn test_prompt_for_chapters_retry_on_invalid() {
@@ -688,8 +723,14 @@ fn test_parse_chapter_selection() {
     // Valid inputs
     assert_eq!(parse_chapter_selection("1-3,5", 10), Some(vec![0, 1, 2, 4]));
     assert_eq!(parse_chapter_selection("10", 10), Some(vec![9]));
-    assert_eq!(parse_chapter_selection(" 2 , 4 - 5 ", 10), Some(vec![1, 3, 4]));
-    assert_eq!(parse_chapter_selection("1-5,3-7", 10), Some(vec![0, 1, 2, 3, 4, 5, 6]));
+    assert_eq!(
+        parse_chapter_selection(" 2 , 4 - 5 ", 10),
+        Some(vec![1, 3, 4])
+    );
+    assert_eq!(
+        parse_chapter_selection("1-5,3-7", 10),
+        Some(vec![0, 1, 2, 3, 4, 5, 6])
+    );
     assert_eq!(parse_chapter_selection("5,3-4,3", 10), Some(vec![2, 3, 4]));
 
     // Whole input rejected on any bad part
@@ -788,16 +829,17 @@ fn test_illegal_chars_legal_characters_preserved() {
         "file+name",      // +
         "file=name",      // =
         "file name",      // Space
-        "漫畫標題",        // Chinese
-        "マンガ",          // Japanese
-        "만화",            // Korean
+        "漫畫標題",       // Chinese
+        "マンガ",         // Japanese
+        "만화",           // Korean
         "file_🎯name",    // Emoji
         "file\u{80}name", // C1 control: legal, and past the ASCII controls
     ];
 
     for input in test_cases {
         assert_eq!(
-            sanitize(input), input,
+            sanitize(input),
+            input,
             "Legal filename characters should be preserved: {}",
             input
         );
@@ -820,10 +862,16 @@ fn test_compress_chapter_file_ordering() {
     let chapter_dir = test_dir.join("chapter");
     std::fs::create_dir_all(&chapter_dir).unwrap();
 
-    let pages: Vec<String> = ["20_page.jpg", "01_page.jpg", "10_page.jpg", "03_page.jpg", "02_page.jpg"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let pages: Vec<String> = [
+        "20_page.jpg",
+        "01_page.jpg",
+        "10_page.jpg",
+        "03_page.jpg",
+        "02_page.jpg",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
     for filename in &pages {
         std::fs::write(chapter_dir.join(filename), filename).unwrap();
     }
@@ -844,7 +892,13 @@ fn test_compress_chapter_file_ordering() {
     assert_eq!(archive.len(), pages.len());
     for (i, page) in pages.iter().enumerate() {
         let mut zip_file = archive.by_index(i).unwrap();
-        assert_eq!(zip_file.name(), page.as_str(), "File at index {} should be {}", i, page);
+        assert_eq!(
+            zip_file.name(),
+            page.as_str(),
+            "File at index {} should be {}",
+            i,
+            page
+        );
         let mut content = String::new();
         zip_file.read_to_string(&mut content).unwrap();
         assert_eq!(&content, page, "Content of {}", page);
@@ -879,8 +933,7 @@ fn test_compress_chapter_ignores_stale_files_from_previous_run() {
     let zip_path = test_dir.join("test.cbz");
     Comic::compress_chapter(&chapter_dir, &pages, &zip_path).unwrap();
 
-    let mut archive =
-        zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
+    let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
     let names: Vec<String> = (0..archive.len())
         .map(|i| archive.by_index(i).unwrap().name().to_string())
         .collect();
@@ -979,7 +1032,10 @@ fn test_sanitize_bounds_the_length() {
     let cjk = format!("x{}", "漢".repeat(100));
     let cut = sanitize(&cjk);
     assert!(cut.len() <= MAX_NAME_BYTES);
-    assert!(cjk.starts_with(&cut), "the cut must be a prefix of the input");
+    assert!(
+        cjk.starts_with(&cut),
+        "the cut must be a prefix of the input"
+    );
     assert_eq!(cut.chars().count(), 1 + (MAX_NAME_BYTES - 1) / 3);
 
     // A cut that stops right after a dot must not leave it dangling: Windows
@@ -1049,14 +1105,20 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
     // The ordinary shape: an absolute path from the chapter JSON plus a file
     // name from its `files` array.
     assert_eq!(
-        comic.image_url("/ps3/l/foo/", "001.jpg.webp").unwrap().as_str(),
+        comic
+            .image_url("/ps3/l/foo/", "001.jpg.webp")
+            .unwrap()
+            .as_str(),
         "https://i.hamreus.com/ps3/l/foo/001.jpg.webp"
     );
 
     // A path arriving without its leading slash must still land on the tunnel.
     // Concatenation produced the host "i.hamreus.comps3" here.
     assert_eq!(
-        comic.image_url("ps3/l/foo/", "001.jpg.webp").unwrap().as_str(),
+        comic
+            .image_url("ps3/l/foo/", "001.jpg.webp")
+            .unwrap()
+            .as_str(),
         "https://i.hamreus.com/ps3/l/foo/001.jpg.webp"
     );
 
@@ -1124,7 +1186,9 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
 
     // Behind a bare "/" directory, the file name alone reaches the anchored
     // slash, so a tab there is the same escape as one in the path.
-    let url = comic.image_url("/", "\t/evil.example/001.jpg.webp").unwrap();
+    let url = comic
+        .image_url("/", "\t/evil.example/001.jpg.webp")
+        .unwrap();
     assert_eq!(url.host_str(), Some("i.hamreus.com"));
     assert_eq!(
         url.as_str(),
@@ -1134,7 +1198,9 @@ fn test_image_url_anchors_the_page_path_on_the_tunnel() {
     // Raw UTF-8 comes back percent-encoded, as it does for page links. An
     // escape the page already wrote rides through unchanged rather than being
     // encoded a second time into `%25`.
-    let url = comic.image_url("/ps3/%E7%AC%AC01/", "001.jpg.webp").unwrap();
+    let url = comic
+        .image_url("/ps3/%E7%AC%AC01/", "001.jpg.webp")
+        .unwrap();
     assert_eq!(
         url.as_str(),
         "https://i.hamreus.com/ps3/%E7%AC%AC01/001.jpg.webp"
@@ -1217,7 +1283,12 @@ fn test_download_fetches_missing_pages_and_keeps_existing_ones() {
         } else {
             b"already here".to_vec()
         };
-        assert_eq!(std::fs::read(chapter_dir.join(name)).unwrap(), expected, "Content of {}", name);
+        assert_eq!(
+            std::fs::read(chapter_dir.join(name)).unwrap(),
+            expected,
+            "Content of {}",
+            name
+        );
     }
     // Nothing but the pages themselves: no `.part` left behind by either download.
     assert_eq!(std::fs::read_dir(chapter_dir).unwrap().count(), files.len());
@@ -1275,15 +1346,19 @@ fn test_download_incomplete_file() {
     // whichever of these reqwest produces. What the test does pin down is that
     // the truncated page is not published.
     assert!(
-        err_msg.contains("Incomplete download") ||
-        err_msg.contains("end of file") ||
-        err_msg.contains("UnexpectedEof"),
-        "Error message should mention incomplete download or EOF, got: {}", err_msg
+        err_msg.contains("Incomplete download")
+            || err_msg.contains("end of file")
+            || err_msg.contains("UnexpectedEof"),
+        "Error message should mention incomplete download or EOF, got: {}",
+        err_msg
     );
 
     // Neither the final name ("0_test.jpg", width 1) nor a leftover .part may
     // survive the failure.
-    assert!(!chapter_dir.join("0_test.jpg").exists(), "Final file should not exist after incomplete download");
+    assert!(
+        !chapter_dir.join("0_test.jpg").exists(),
+        "Final file should not exist after incomplete download"
+    );
     assert!(!chapter_dir.join("0_test.jpg.part").exists());
 
     server.join().unwrap();
@@ -1303,7 +1378,10 @@ fn test_download_resume_logic() {
     // If it attempts to download, it will fail because the tunnel host is invalid.
     let result = fx.download(&["test.jpg"]);
 
-    assert!(result.is_ok(), "Should skip existing file and return Ok, but got error");
+    assert!(
+        result.is_ok(),
+        "Should skip existing file and return Ok, but got error"
+    );
     // Skipped pages still have to be reported, or compress_chapter would omit them.
     assert_eq!(result.unwrap(), vec!["0_test.jpg".to_string()]);
 
@@ -1388,7 +1466,10 @@ fn test_parse_search_results_next_link_must_lead_to_a_page() {
     // raw or relative, and a fragment on any of them all name this page.
     let (page, url) = load_search_page("金田一.html");
     let next_link = r#"href="/s/金田一_p2.html" style="margin-right:5px;">下一頁"#;
-    assert!(page.contains(next_link), "the fixture's next link has changed");
+    assert!(
+        page.contains(next_link),
+        "the fixture's next link has changed"
+    );
 
     for (href, expected) in [
         ("javascript:;", None),
@@ -1478,7 +1559,11 @@ fn test_multiple_ul_chapter_ordering() {
     assert_eq!(names.len(), 112, "單行本 should span both pager <ul>s");
     for i in 0..names.len() {
         let expected = format!("第{:02}卷", i + 1);
-        assert_eq!(names[i], expected, "Position {} should be {}, got {}", i, expected, names[i]);
+        assert_eq!(
+            names[i], expected,
+            "Position {} should be {}, got {}",
+            i, expected, names[i]
+        );
     }
 
     // 單話 names are irregular, so check the six-<ul> section by its ends and
