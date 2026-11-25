@@ -21,6 +21,8 @@ fn test_comic(tunnel: &str, book_dir: &Path) -> Comic {
         chapters: vec![],
         book_safe: "Test Comic".to_string(),
         book_dir: book_dir.to_path_buf(),
+        landing: Url::parse("http://localhost/comic/")
+            .expect("test landing page must be a valid absolute URL"),
     }
 }
 

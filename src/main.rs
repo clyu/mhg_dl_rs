@@ -216,6 +216,8 @@ impl std::fmt::Display for NumOrStr {
 struct SearchResult {
     title: String,
     comic_id: usize,
+    /// The search page this result is listed on: the `referer` of its comic page.
+    page: Url,
 }
 
 #[derive(Debug)]
@@ -237,6 +239,9 @@ struct Comic {
     /// Sanitized title, used as the book directory name and zip name prefix.
     book_safe: String,
     book_dir: PathBuf,
+    /// The landing page the chapters are listed on. Each chapter page is fetched
+    /// with it as the `referer`, as a browser follows a link from that page.
+    landing: Url,
 }
 
 /// The `.part` file `write_atomic` builds its output in, and the only thing
@@ -596,11 +601,7 @@ fn build_client() -> Result<Client> {
     for (key, value) in [
         ("accept-encoding", "gzip, deflate, br"),
         ("accept-language", "zh-TW;q=0.8,en-US,en;q=0.5,zh;q=0.3"),
-        ("cache-control", "no-cache"),
-        ("dnt", "1"),
-        ("pragma", "no-cache"),
-        ("sec-gpc", "1"),
-        ("user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"),
+        ("user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0"),
     ] {
         // Both halves are `&'static str` literals, so both conversions are
         // infallible in practice and panic on a typo rather than turning a bug
@@ -760,13 +761,14 @@ fn trimmed_text(e: scraper::ElementRef<'_>) -> String {
     e.text().collect::<String>().trim().to_string()
 }
 
-fn search_result_from_item(li: scraper::ElementRef<'_>) -> Option<SearchResult> {
+fn search_result_from_item(li: scraper::ElementRef<'_>, page: &Url) -> Option<SearchResult> {
     let link = li.select(&SEL_LINK).next()?;
     let comic_id = parse_id(link.value().attr("href")?)?;
     let title = link.value().attr("title")?;
     Some(SearchResult {
         title: title.to_string(),
         comic_id,
+        page: page.clone(),
     })
 }
 
@@ -781,7 +783,7 @@ fn parse_search_results(html: &str, page: &Url) -> (Vec<SearchResult>, Option<St
 
     let results: Vec<SearchResult> = document
         .select(&SEL_COMICS)
-        .filter_map(search_result_from_item)
+        .filter_map(|li| search_result_from_item(li, page))
         .collect();
 
     // What a request for `page` asks the server for. A fragment never leaves
@@ -934,10 +936,11 @@ impl Comic {
     /// Fetch a comic's landing page and build the download context around it.
     ///
     /// `id` stays a separate argument rather than being read off `args`: it may
-    /// have come from `--search` instead of the positional URL.
-    fn new(id: usize, client: Client, args: &Args) -> Result<Self> {
+    /// have come from `--search` instead of the positional URL. `referer` is the
+    /// page the landing page is reached from; see `run`.
+    fn new(id: usize, client: Client, args: &Args, referer: &Url) -> Result<Self> {
         let url = comic_url(id)?;
-        let res = fetch_html(&client, &url, &HOST_URL)?;
+        let res = fetch_html(&client, &url, referer)?;
         let (title, chapters) = parse_comic_html(&res)?;
         let book_safe = sanitize(&title);
         let book_dir = args.output_dir.join(&book_safe);
@@ -953,6 +956,7 @@ impl Comic {
             chapters,
             book_safe,
             book_dir,
+            landing: url,
         })
     }
 
@@ -1011,10 +1015,10 @@ impl Comic {
     /// already there. Returns the page file names in reading order, which is what
     /// `compress_chapter` packs.
     ///
-    /// `chapter_url` is the page these images hang off, sent back as the
-    /// `referer` the tunnel checks. It arrives as a `Url` for the reason
-    /// `fetch_html`'s referer does: only `join_url`'s output reaches a header
-    /// value, and a header value cannot carry raw non-ASCII bytes.
+    /// `chapter_url` is the page these images hang off. Only its origin is sent
+    /// as the `referer` the tunnel checks, which is what a browser sends on a
+    /// cross-site image. It arrives as a `Url` so that the origin serializes as
+    /// ASCII: a header value cannot carry raw non-ASCII bytes.
     fn download_images(
         &self,
         chap: &ChapterStruct,
@@ -1024,6 +1028,8 @@ impl Comic {
     ) -> Result<Vec<String>> {
         let width = chap.files.len().saturating_sub(1).to_string().len();
         let e_str = chap.sl.e.to_string();
+        // The origin alone, written the way a browser writes it: with the slash.
+        let referer = format!("{}/", chapter_url.origin().ascii_serialization());
         let mut names = Vec::with_capacity(chap.files.len());
         let mut needs_delay = false;
         for (i, file) in chap.files.iter().enumerate() {
@@ -1047,12 +1053,16 @@ impl Comic {
             let mut resp = self
                 .client
                 .get(url)
-                .header("accept", "image/webp,image/apng,image/*,*/*;q=0.8")
+                .header(
+                    "accept",
+                    "image/avif,image/jxl,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5",
+                )
                 .header("priority", "u=4")
-                .header("referer", chapter_url.as_str())
+                .header("referer", referer.as_str())
                 .header("sec-fetch-dest", "image")
                 .header("sec-fetch-mode", "no-cors")
                 .header("sec-fetch-site", "cross-site")
+                .header("sec-fetch-storage-access", "none")
                 .query(&[("e", &e_str), ("m", &chap.sl.m)])
                 .send()?
                 .error_for_status()?;
@@ -1168,7 +1178,7 @@ impl Comic {
             return Ok(false);
         }
         let chapter_url = resolve_url(href)?;
-        let html = fetch_html(&self.client, &chapter_url, &HOST_URL)?;
+        let html = fetch_html(&self.client, &chapter_url, &self.landing)?;
         let chap = parse_chapter_html(&html)?;
         let chapter_dir = self.book_dir.join(&chap_safe);
         fs::create_dir_all(&chapter_dir)?;
@@ -1288,12 +1298,13 @@ fn prompt_for_chapters<R: io::BufRead>(reader: &mut R, chapters_count: usize) ->
 }
 
 /// Search for `keyword`, page through the results interactively, and let the
-/// user pick a comic. Returns the selected comic's ID.
+/// user pick a comic. Returns the selected comic's ID and the search page it
+/// was listed on.
 fn interactive_search<R: io::BufRead>(
     client: &Client,
     reader: &mut R,
     keyword: &str,
-) -> Result<usize> {
+) -> Result<(usize, Url)> {
     let mut all_results: Vec<SearchResult> = Vec::new();
     // The page the current href was read off: both the base it resolves
     // against and the `referer` the fetch sends. Seeded with the site root for
@@ -1378,7 +1389,8 @@ fn interactive_search<R: io::BufRead>(
     }
 
     let selected = prompt_for_comic_selection(reader, all_results.len())?;
-    Ok(all_results[selected].comic_id)
+    let SearchResult { comic_id, page, .. } = all_results.swap_remove(selected);
+    Ok((comic_id, page))
 }
 
 /// `main` deliberately does not return `Result`: the `Termination` impl for
@@ -1401,17 +1413,19 @@ fn run() -> Result<()> {
     let client = build_client()?;
     let mut stdin = io::stdin().lock();
 
-    let id = if let Some(ref search_keyword) = args.search {
+    // The page the comic is reached from, which is the `referer` of its landing
+    // page: the search page it was picked on, or the site root for a URL typed in.
+    let (id, referer) = if let Some(ref search_keyword) = args.search {
         interactive_search(&client, &mut stdin, search_keyword)?
     } else {
         let url = args
             .url
             .as_deref()
             .expect("clap's required_unless_present guarantees url when search is absent");
-        parse_id(url).ok_or(AppError::InvalidUrl)?
+        (parse_id(url).ok_or(AppError::InvalidUrl)?, HOST_URL.clone())
     };
 
-    let comic = Comic::new(id, client, &args)?;
+    let comic = Comic::new(id, client, &args, &referer)?;
     println!("Title: {}", comic.title);
     let mut last_group = "";
     for (i, chapter) in comic.chapters.iter().enumerate() {
